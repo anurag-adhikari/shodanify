@@ -8,6 +8,7 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
 
 _records_cache = None
 _stats_cache = None
+_duplicates_removed = 0
 
 
 # Parsing helpers
@@ -152,11 +153,11 @@ def _parse_record(r):
 # Data loading and in-memory caching
 
 def load_records(force=False):
-    global _records_cache, _stats_cache
+    global _records_cache, _stats_cache, _duplicates_removed
     if _records_cache is not None and not force:
         return _records_cache
 
-    records = []
+    raw = []
     if DATA_DIR.exists():
         for pattern, opener in [("*.json.gz", gzip.open), ("*.json", open)]:
             for path in sorted(DATA_DIR.glob(pattern)):
@@ -169,12 +170,28 @@ def load_records(force=False):
                             line = line.strip()
                             if line:
                                 try:
-                                    records.append(_parse_record(json.loads(line)))
+                                    raw.append(_parse_record(json.loads(line)))
                                 except Exception:
                                     pass
                 except Exception:
                     pass
 
+    # Deduplicate by (ip_str, port), keeping the record with the newest timestamp
+    seen: dict = {}
+    for r in raw:
+        key = (r["ip_str"], r["port"])
+        existing = seen.get(key)
+        if existing is None:
+            seen[key] = r
+        else:
+            # Prefer the record with a later timestamp
+            ts_new = r["timestamp"] or ""
+            ts_old = existing["timestamp"] or ""
+            if ts_new > ts_old:
+                seen[key] = r
+
+    records = list(seen.values())
+    _duplicates_removed = len(raw) - len(records)
     _records_cache = records
     _stats_cache = None
     return records
@@ -258,6 +275,7 @@ def compute_stats(records):
 
     _stats_cache = {
         "total_records": len(records),
+        "duplicates_removed": _duplicates_removed,
         "unique_ips": len(ips),
         "unique_ports": len(ports),
         "unique_countries": len(countries),
