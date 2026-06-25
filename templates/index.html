@@ -506,6 +506,13 @@
           <option value="medium">Medium (≥4.0)</option>
           <option value="low">Low</option>
         </select>
+        <select x-model="vulnSort"
+          class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-orange-500">
+          <option value="cvss">Sort: CVSS</option>
+          <option value="hosts">Sort: Host count</option>
+          <option value="epss">Sort: EPSS</option>
+          <option value="cve">Sort: CVE ID</option>
+        </select>
         <label class="flex items-center gap-2 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg cursor-pointer text-sm text-slate-300">
           <input type="checkbox" x-model="vulnVerifiedOnly" class="accent-green-500 rounded">
           Verified Only
@@ -855,8 +862,19 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 :d="scanningAll ? 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15' : 'M13 10V3L4 14h7v7l9-11h-7z'"/>
             </svg>
-            <span x-text="scanningAll ? 'Scanning…' : `Scan all (${filteredTargets.length})`"></span>
+            <span x-text="scanningAll ? `Scanning ${scanProgress.done}/${scanProgress.total}…` : (selectedCount ? `Scan selected (${selectedCount})` : `Scan all (${filteredTargets.length})`)"></span>
           </button>
+        </div>
+        <!-- Scan progress bar -->
+        <div x-show="scanningAll" x-transition class="mt-3">
+          <div class="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+            <span x-text="`Scanning ${scanProgress.done} of ${scanProgress.total} targets…`"></span>
+            <span class="font-mono" x-text="scanProgress.total ? Math.round(scanProgress.done / scanProgress.total * 100) + '%' : ''"></span>
+          </div>
+          <div class="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+            <div class="h-full bg-orange-500 transition-all duration-300"
+              :style="`width:${scanProgress.total ? (scanProgress.done / scanProgress.total * 100) : 0}%`"></div>
+          </div>
         </div>
         <!-- Summary chips -->
         <div class="flex flex-wrap gap-2 mt-3 text-xs">
@@ -876,8 +894,33 @@
             <span class="font-semibold" x-text="targetSummary.open + targetSummary.unscanned"></span> unscanned / other
           </span>
         </div>
+        <!-- Bulk selection bar -->
+        <div x-show="selectedCount" x-transition
+          class="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-800">
+          <span class="text-xs text-slate-300">
+            <span class="font-semibold text-orange-400" x-text="selectedCount"></span> selected
+          </span>
+          <button @click="markSelectedInfra()"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-orange-500/90 hover:bg-orange-500 text-white transition">
+            Mark as infrastructure
+          </button>
+          <button @click="clearSelection()"
+            class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+            Clear
+          </button>
+        </div>
         <!-- Actions -->
         <div class="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-800">
+          <button @click="generateExecSummary()" :disabled="!filteredTargets.length"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-orange-500/90 hover:bg-orange-500 text-white transition disabled:opacity-50">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            Executive summary
+          </button>
+          <button @click="exportExecSummaryHtml()" :disabled="!filteredTargets.length"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition disabled:opacity-50">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+            Export HTML
+          </button>
           <button @click="generateOrgReport()" :disabled="!filteredTargets.length"
             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition disabled:opacity-50">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
@@ -928,6 +971,11 @@
           <table class="w-full text-xs">
             <thead>
               <tr class="border-b border-slate-800 text-slate-500 uppercase tracking-wider text-[10px]">
+                <th class="px-3 py-3 w-8">
+                  <input type="checkbox" class="accent-orange-500 rounded cursor-pointer"
+                    :checked="allVisibleSelected" @change="toggleSelectAll()"
+                    title="Select all visible targets">
+                </th>
                 <th class="text-left px-4 py-3">Website / Domain</th>
                 <th class="text-left px-3 py-3">Org</th>
                 <th class="text-left px-3 py-3">Status</th>
@@ -939,7 +987,13 @@
             </thead>
             <tbody>
               <template x-for="t in filteredTargets" :key="t.key">
-                <tr class="border-b border-slate-800/50 hover:bg-slate-800/40 transition">
+                <tr class="group border-b border-slate-800/50 hover:bg-slate-800/40 transition"
+                  :class="selectedTargets[t.key] ? 'bg-orange-950/20' : ''">
+                  <!-- Select -->
+                  <td class="px-3 py-3">
+                    <input type="checkbox" class="accent-orange-500 rounded cursor-pointer"
+                      :checked="!!selectedTargets[t.key]" @change="toggleTarget(t.key)">
+                  </td>
                   <!-- Website / domain -->
                   <td class="px-4 py-3">
                     <div class="flex items-center gap-2">
@@ -947,6 +1001,11 @@
                         class="font-semibold hover:text-orange-400 transition truncate max-w-[220px]"
                         :class="t.is_site ? 'text-slate-200' : 'text-slate-400'"
                         x-text="t.display"></a>
+                      <template x-if="t.is_site && (t.primary_domain || t.hostname)">
+                        <button @click="markTargetInfra(t)"
+                          class="opacity-0 group-hover:opacity-100 transition flex-shrink-0 w-4 h-4 inline-flex items-center justify-center rounded bg-slate-700 hover:bg-orange-500 text-slate-300 hover:text-white text-xs font-bold leading-none"
+                          :title="`Mark ${t.primary_domain || t.hostname} as infrastructure`">+</button>
+                      </template>
                       <svg class="w-3 h-3 text-slate-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
                       </svg>
@@ -1020,7 +1079,7 @@
                 </tr>
               </template>
               <template x-if="filteredTargets.length === 0">
-                <tr><td colspan="7" class="text-center py-12 text-slate-500">No web-facing targets for the current filter.</td></tr>
+                <tr><td colspan="8" class="text-center py-12 text-slate-500">No web-facing targets for the current filter.</td></tr>
               </template>
             </tbody>
           </table>
@@ -1532,8 +1591,11 @@ function shodanify() {
     scans: {},
     scanning: {},
     scanningAll: false,
+    scanProgress: { done: 0, total: 0 },
+    selectedTargets: {},
     targetSearch: '',
     targetType: 'sites',
+    targetSort: 'status',
     infraDefaults: [],
     infraAdded: [],
     infraRemoved: [],
@@ -1547,6 +1609,7 @@ function shodanify() {
     vulnSearch: '',
     vulnFilter: '',
     vulnVerifiedOnly: false,
+    vulnSort: 'cvss',
     selectedRecord: null,
     recordDetail: null,
     modalLoading: false,
@@ -1674,13 +1737,49 @@ function shodanify() {
       return [...this.effectiveInfra].sort();
     },
     isCustomInfra(d) { return this.infraAdded.includes(d); },
-    addInfraDomain() {
-      const d = this.newInfraDomain.trim().toLowerCase().replace(/^\.+|\.+$/g, '');
-      if (!d || !this._looksLikeDomain(d)) return;
+    // Add one domain to the infrastructure list. Returns true if it was added.
+    _addInfra(raw) {
+      const d = (raw || '').trim().toLowerCase().replace(/^\.+|\.+$/g, '');
+      if (!d || !this._looksLikeDomain(d)) return false;
       this.infraRemoved = this.infraRemoved.filter(x => x !== d);
       if (!this.effectiveInfra.has(d)) this.infraAdded.push(d);
-      this.newInfraDomain = '';
       this.saveInfraPrefs();
+      return true;
+    },
+    addInfraDomain() {
+      if (this._addInfra(this.newInfraDomain)) this.newInfraDomain = '';
+    },
+    // Mark a single target's registrable domain as infrastructure (hover "+").
+    markTargetInfra(t) {
+      this._addInfra(t.primary_domain || t.hostname);
+    },
+    // ── Bulk target selection ─────────────────────────────────────────────
+    toggleTarget(key) {
+      if (this.selectedTargets[key]) delete this.selectedTargets[key];
+      else this.selectedTargets[key] = true;
+    },
+    get selectedCount() {
+      return this.filteredTargets.filter(t => this.selectedTargets[t.key]).length;
+    },
+    get allVisibleSelected() {
+      const t = this.filteredTargets;
+      return t.length > 0 && t.every(x => this.selectedTargets[x.key]);
+    },
+    toggleSelectAll() {
+      const all = this.allVisibleSelected;
+      for (const t of this.filteredTargets) {
+        if (all) delete this.selectedTargets[t.key];
+        else this.selectedTargets[t.key] = true;
+      }
+    },
+    clearSelection() { this.selectedTargets = {}; },
+    markSelectedInfra() {
+      let n = 0;
+      for (const t of this.filteredTargets) {
+        if (this.selectedTargets[t.key] && this._addInfra(t.primary_domain || t.hostname)) n++;
+      }
+      this.clearSelection();
+      return n;
     },
     removeInfraDomain(d) {
       if (this.infraAdded.includes(d)) this.infraAdded = this.infraAdded.filter(x => x !== d);
@@ -1765,14 +1864,21 @@ function shodanify() {
 
     async scanAll() {
       if (this.scanningAll) return;
-      const targets = this.filteredTargets;
+      // Scan the current selection if any rows are ticked, else everything visible.
+      const sel = this.filteredTargets.filter(t => this.selectedTargets[t.key]);
+      const targets = sel.length ? sel : this.filteredTargets;
       if (!targets.length) return;
       this.scanningAll = true;
+      this.scanProgress = { done: 0, total: targets.length };
       targets.forEach(t => this.scanning[t.key] = true);
-      // Fire chunks concurrently so the UI fills in progressively.
-      await Promise.all(this._chunk(targets, 12).map(async ch => {
+      // Smaller chunks stream results back sooner, so the progress bar and the
+      // table fill in progressively rather than in big jumps.
+      await Promise.all(this._chunk(targets, 8).map(async ch => {
         try { await this._postScan(ch); }
-        finally { ch.forEach(t => delete this.scanning[t.key]); }
+        finally {
+          ch.forEach(t => delete this.scanning[t.key]);
+          this.scanProgress.done += ch.length;
+        }
       }));
       this.scanningAll = false;
     },
@@ -1840,7 +1946,7 @@ function shodanify() {
         }).join('');
 
         const cveRows = cves.map(c => `<tr>
-            <td class="mono">${esc(c.cve)}</td>
+            <td class="mono"><a href="${this._cveUrl(c.cve)}" target="_blank" rel="noopener">${esc(c.cve)}</a></td>
             <td><span class="sev ${c.severity}">${esc(c.severity.toUpperCase())}</span> ${c.max_cvss.toFixed(1)}</td>
             <td>${c.host_count}</td>
             <td>${esc(c.summary || '')}</td>
@@ -1880,6 +1986,111 @@ function shodanify() {
         ${body}</body></html>`;
       const w = window.open('', '_blank');
       if (w) { w.document.write(html); w.document.close(); }
+    },
+
+    _cveUrl(cve) { return `https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cve)}`; },
+
+    // Build the per-website vulnerability report HTML. Each website is a
+    // collapsible row (collapsed by default) so the report stays scannable;
+    // a filter box and expand/collapse-all controls make it easy to navigate.
+    // Returns null when there are no website targets in the current view.
+    _buildWebsiteReport() {
+      const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const cveMap = {};
+      for (const v of (this.stats?.vulns || [])) cveMap[v.cve] = v;
+
+      // Websites only (real organisation sites, not generic cloud/VPS infra).
+      const sites = this.filteredTargets.filter(t => t.is_site);
+      if (!sites.length) return null;
+
+      // Worst-exposed sites first.
+      sites.sort((a, b) => (b.max_cvss - a.max_cvss) || (b.vulns_count - a.vulns_count) || a.display.localeCompare(b.display));
+
+      const scanned = sites.filter(t => this.scans[t.key]);
+      const up = sites.filter(t => this.scanStatus(t.key).tone === 'up').length;
+      const withCve = sites.filter(t => t.vulns_count > 0).length;
+
+      // One collapsible row per website; summary line is always visible.
+      const sevRank = { critical: 4, high: 3, medium: 2, low: 1, none: 0 };
+      const sections = sites.map(t => {
+        const st = this.scanStatus(t.key);
+        const cves = (t.cves || []).map(c => cveMap[c]).filter(Boolean)
+          .sort((a, b) => (sevRank[b.severity] - sevRank[a.severity]) || (b.max_cvss - a.max_cvss));
+        const filterKey = `${t.display} ${t.ip}:${t.port} ${t.org || ''} ${cves.map(c => c.cve).join(' ')}`.toLowerCase();
+        const summary = `<summary>
+            <span class="site">${esc(t.display)}</span>
+            <span class="meta mono">${esc(t.ip)}:${t.port}</span>
+            <span class="meta">${esc(t.org || 'Unknown org')}</span>
+            <span class="badge ${st.tone}">${esc(st.label)}</span>
+            ${t.vulns_count ? `<span class="meta"><b class="sev ${this.sevName(t.max_cvss)}">${t.vulns_count}</b> CVE${t.vulns_count === 1 ? '' : 's'} · max CVSS ${t.max_cvss.toFixed(1)}</span>` : '<span class="ok">No known vulnerabilities</span>'}
+          </summary>`;
+        const body = cves.length
+          ? `<div class="body">
+              <a class="visit" href="${esc(t.url)}" target="_blank" rel="noopener">Open ${esc(t.display)} ↗</a>
+              <table><thead><tr><th>CVE</th><th>Severity / CVSS</th><th>Verified</th><th>What it is</th></tr></thead><tbody>${cves.map(c => `<tr>
+                <td class="mono"><a href="${this._cveUrl(c.cve)}" target="_blank" rel="noopener">${esc(c.cve)}</a></td>
+                <td><span class="sev ${c.severity}">${esc(c.severity.toUpperCase())}</span> ${c.max_cvss.toFixed(1)}</td>
+                <td>${c.verified ? '✓' : ''}</td>
+                <td>${esc((c.summary || 'No description available.').slice(0, 260))}</td>
+              </tr>`).join('')}</tbody></table>
+            </div>`
+          : `<div class="body"><a class="visit" href="${esc(t.url)}" target="_blank" rel="noopener">Open ${esc(t.display)} ↗</a><p class="ok">No known vulnerabilities for this website.</p></div>`;
+        return `<details class="site-card" data-name="${esc(filterKey)}">${summary}${body}</details>`;
+      }).join('');
+
+      const css = `*{box-sizing:border-box}body{font:13px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;color:#1e293b;max-width:880px;margin:0 auto;padding:32px;background:#fff}
+        h1{font-size:22px;margin:0 0 4px}.sub{color:#64748b;margin:0 0 20px}.mono{font-family:ui-monospace,monospace;font-size:12px}
+        details.site-card{border:1px solid #e2e8f0;border-radius:10px;margin-bottom:8px;break-inside:avoid}
+        summary{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;list-style:none}
+        summary::-webkit-details-marker{display:none}summary::before{content:'▸';color:#94a3b8;font-size:11px}details[open] summary::before{content:'▾'}
+        summary:hover{background:#f8fafc}details[open] summary{border-bottom:1px solid #eef2f7}
+        .body{padding:4px 14px 14px}.visit{display:inline-block;font-size:11px;margin:6px 0 2px}
+        .site{font-size:14px;font-weight:700;color:#0f172a}.meta{font-size:11px;color:#64748b}.ok{font-size:12px;font-weight:600;color:#16a34a}
+        table{width:100%;border-collapse:collapse;margin-top:6px}th{text-align:left;font-size:10px;text-transform:uppercase;color:#64748b;border-bottom:1px solid #cbd5e1;padding:5px 8px}
+        td{padding:5px 8px;border-bottom:1px solid #eef2f7;vertical-align:top}a{color:#ea580c;text-decoration:none}a:hover{text-decoration:underline}
+        .cards{display:flex;gap:10px;margin:8px 0 22px;flex-wrap:wrap}.card{flex:1;min-width:120px;border:1px solid #e2e8f0;border-radius:8px;padding:12px;text-align:center}.card b{display:block;font-size:24px}.card span{font-size:11px;color:#64748b}
+        .sev{font-weight:700;font-size:11px}.sev.critical{color:#dc2626}.sev.high{color:#ea580c}.sev.medium{color:#ca8a04}.sev.low{color:#2563eb}.sev.none{color:#64748b}
+        .badge{padding:1px 7px;border-radius:99px;font-size:11px;font-weight:600}.badge.up{background:#dcfce7;color:#166534}.badge.warn{background:#fef9c3;color:#854d0e}.badge.down{background:#fee2e2;color:#991b1b}.badge.open,.badge.unscanned{background:#f1f5f9;color:#475569}
+        #flt{flex:1;min-width:180px;font:inherit;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px}
+        @media print{.noprint{display:none}body{padding:0}details.site-card{break-inside:avoid}}
+        .bar{position:sticky;top:0;z-index:5;background:#fff;padding:10px 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-bottom:1px solid #e2e8f0;margin-bottom:16px}
+        button{font:inherit;padding:6px 14px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;cursor:pointer}`;
+
+      const script = `<script>
+        function setAll(open){document.querySelectorAll('details.site-card').forEach(d=>{if(d.style.display!=='none')d.open=open});}
+        function filterSites(q){q=q.trim().toLowerCase();var n=0;document.querySelectorAll('details.site-card').forEach(function(d){var m=!q||d.dataset.name.indexOf(q)>-1;d.style.display=m?'':'none';if(m)n++;});document.getElementById('count').textContent=n;}
+        window.addEventListener('beforeprint',function(){setAll(true);});
+      <\/script>`;
+
+      return `<!doctype html><html><head><meta charset="utf-8"><title>Website Vulnerability Summary</title><style>${css}</style></head><body>
+        <div class="bar noprint">
+          <input id="flt" placeholder="Filter websites, IPs, orgs or CVE…" oninput="filterSites(this.value)">
+          <button onclick="setAll(true)">Expand all</button>
+          <button onclick="setAll(false)">Collapse all</button>
+          <button onclick="window.print()">Print / Save as PDF</button>
+        </div>
+        <h1>Website Vulnerability Summary</h1>
+        <p class="sub">Generated ${esc(new Date().toLocaleString())} · <span id="count">${sites.length}</span> website${sites.length === 1 ? '' : 's'} shown · ${scanned.length} actively scanned. Click a website to expand its vulnerabilities; every CVE links to its NVD entry.</p>
+        <div class="cards">
+          <div class="card"><b>${sites.length}</b><span>websites</span></div>
+          <div class="card"><b>${up}</b><span>confirmed up</span></div>
+          <div class="card"><b>${withCve}</b><span>with known CVEs</span></div>
+          <div class="card"><b>${sites.length - withCve}</b><span>no known CVEs</span></div>
+        </div>
+        ${sections}${script}</body></html>`;
+    },
+
+    generateExecSummary() {
+      const html = this._buildWebsiteReport();
+      if (!html) { alert('No website targets in the current view. Switch the filter to "Websites" or "All web".'); return; }
+      const w = window.open('', '_blank');
+      if (w) { w.document.write(html); w.document.close(); }
+    },
+
+    exportExecSummaryHtml() {
+      const html = this._buildWebsiteReport();
+      if (!html) { alert('No website targets in the current view. Switch the filter to "Websites" or "All web".'); return; }
+      this._download(html, `shodanify-website-vulnerabilities-${new Date().toISOString().slice(0, 10)}.html`, 'text/html');
     },
 
     clearFilters() {
@@ -2023,7 +2234,13 @@ function shodanify() {
       }
       if (this.vulnFilter) v = v.filter(x => x.severity === this.vulnFilter);
       if (this.vulnVerifiedOnly) v = v.filter(x => x.verified);
-      return v;
+      const cmp = {
+        cvss: (a, b) => b.max_cvss - a.max_cvss,
+        hosts: (a, b) => b.host_count - a.host_count,
+        epss: (a, b) => (b.epss || 0) - (a.epss || 0),
+        cve: (a, b) => b.cve.localeCompare(a.cve),
+      };
+      return [...v].sort(cmp[this.vulnSort] || cmp.cvss);
     },
 
     get filteredDuplicates() {
