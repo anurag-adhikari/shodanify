@@ -4,6 +4,60 @@ Everything here is side-effect free and independently testable.
 """
 from datetime import datetime
 
+# Auto-generated PTR / hosting domains. A host whose only domain is one of
+# these is generic cloud/VPS infrastructure rather than an organisation's
+# website. Matched as an exact domain or a parent suffix.
+INFRA_DOMAINS = {
+    "amazonaws.com", "compute.amazonaws.com", "compute-1.amazonaws.com",
+    "cloudfront.net", "elasticbeanstalk.com",
+    "googleusercontent.com", "bc.googleusercontent.com", "1e100.net",
+    "cloudapp.azure.com", "cloudapp.net", "azure.com", "azurewebsites.net",
+    "oraclecloud.com", "oraclevcn.com",
+    "vultrusercontent.com", "linodeusercontent.com", "members.linode.com",
+    "digitalocean.com", "your-server.de", "hetzner.com", "hetzner.de",
+    "contabo.net", "contabo.host", "ovh.net", "ovh.com", "ovh.ca",
+    "scaleway.com", "online.net", "leaseweb.com", "leaseweb.net",
+    "choopa.com", "constant.com", "as-hosting.de", "secureserver.net",
+    "hostwindsdns.com", "ramnode.com", "quadranet.com", "colocrossing.com",
+    "frantech.ca", "servers.com", "dedicated.com", "ip-pool.com",
+    "akamaitechnologies.com", "cloudflare.com", "t-ipconnect.de",
+}
+
+
+def _is_infra_domain(d):
+    d = (d or "").lower().strip(".")
+    return any(d == x or d.endswith("." + x) for x in INFRA_DOMAINS)
+
+
+def _looks_like_domain(s):
+    """True for things like ``acme.com.au`` but not IPs or single labels."""
+    s = (s or "").lower().strip()
+    if not s or " " in s or "." not in s:
+        return False
+    return s.rsplit(".", 1)[-1].isalpha()
+
+
+def classify_site(domains, ssl_cn):
+    """Decide whether a host is a real organisation website.
+
+    Returns ``(is_site, primary_domain)``. ``is_site`` is True when there is a
+    registrable domain (from Shodan's ``domains`` or the TLS certificate CN)
+    that is not a cloud/hosting provider's auto-generated domain.
+    """
+    candidates = [d for d in (domains or []) if _looks_like_domain(d)]
+    if ssl_cn:
+        cn = ssl_cn.lower().lstrip("*").strip(".")
+        if cn.startswith("www."):
+            cn = cn[4:]
+        if _looks_like_domain(cn):
+            candidates.append(cn)
+    real = [d for d in dict.fromkeys(candidates) if not _is_infra_domain(d)]
+    if not real:
+        return False, None
+    # Prefer the most "apex" domain (fewest labels, then shortest).
+    primary = sorted(real, key=lambda d: (d.count("."), len(d)))[0]
+    return True, primary
+
 
 def cert_date(s):
     """Convert a Shodan cert timestamp (``YYYYMMDDHHMMSSZ``) to ISO-8601."""
@@ -108,6 +162,9 @@ def parse_record(r):
     loc = r.get("location") or {}
     shodan = r.get("_shodan") or {}
     http = parse_http(r.get("http"))
+    ssl = parse_ssl(r.get("ssl"))
+    domains = r.get("domains") or []
+    is_site, primary_domain = classify_site(domains, ssl.get("subject_cn") if ssl else None)
     return {
         "ip_str": r.get("ip_str", ""),
         "ip": r.get("ip"),
@@ -120,7 +177,9 @@ def parse_record(r):
         "product": r.get("product"),
         "version": r.get("version"),
         "hostnames": r.get("hostnames") or [],
-        "domains": r.get("domains") or [],
+        "domains": domains,
+        "is_site": is_site,
+        "primary_domain": primary_domain,
         "timestamp": r.get("timestamp"),
         "tags": r.get("tags") or [],
         "cpe": r.get("cpe23") or r.get("cpe") or [],
@@ -134,7 +193,7 @@ def parse_record(r):
         },
         "cloud": r.get("cloud"),
         "http": http,
-        "ssl": parse_ssl(r.get("ssl")),
+        "ssl": ssl,
         "vulns": parse_vulns(r.get("vulns")),
         "data": (r.get("data") or "")[:3000],
         "shodan_module": shodan.get("module"),
@@ -157,6 +216,9 @@ def record_summary(r):
         "version": r["version"],
         "hostname": r["hostnames"][0] if r["hostnames"] else None,
         "hostnames": r["hostnames"],
+        "domains": r["domains"],
+        "is_site": r["is_site"],
+        "primary_domain": r["primary_domain"],
         "country_code": r["location"]["country_code"],
         "country_name": r["location"]["country_name"],
         "city": r["location"]["city"],

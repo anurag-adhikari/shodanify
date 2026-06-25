@@ -835,7 +835,17 @@
               <span class="font-mono text-slate-400">Shodanify-Healthcheck</span>.
             </p>
           </div>
-          <div class="relative ml-auto min-w-52">
+          <div class="ml-auto inline-flex rounded-lg border border-slate-700 bg-slate-950 p-0.5 text-xs">
+            <template x-for="opt in [{k:'sites',label:'Websites',n:targetCounts.sites},{k:'all',label:'All web',n:targetCounts.all},{k:'infra',label:'Infrastructure',n:targetCounts.infra}]" :key="opt.k">
+              <button @click="targetType = opt.k"
+                class="px-3 py-1.5 rounded-md font-semibold transition flex items-center gap-1.5"
+                :class="targetType === opt.k ? 'bg-orange-500/90 text-white' : 'text-slate-400 hover:text-slate-200'">
+                <span x-text="opt.label"></span>
+                <span class="text-[10px] opacity-70" x-text="opt.n"></span>
+              </button>
+            </template>
+          </div>
+          <div class="relative min-w-52">
             <input type="text" x-model="targetSearch" placeholder="Filter by domain, IP or org…"
               class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500">
           </div>
@@ -890,11 +900,16 @@
                   <td class="px-4 py-3">
                     <div class="flex items-center gap-2">
                       <a :href="t.url" target="_blank" rel="noopener noreferrer"
-                        class="text-slate-200 font-semibold hover:text-orange-400 transition truncate max-w-[220px]"
-                        x-text="t.hostname || t.ip"></a>
+                        class="font-semibold hover:text-orange-400 transition truncate max-w-[220px]"
+                        :class="t.is_site ? 'text-slate-200' : 'text-slate-400'"
+                        x-text="t.display"></a>
                       <svg class="w-3 h-3 text-slate-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
                       </svg>
+                      <template x-if="!t.is_site">
+                        <span class="tag-badge bg-slate-800 text-slate-500 border border-slate-700"
+                          x-text="t.cloud?.provider || 'infra'"></span>
+                      </template>
                     </div>
                     <div class="text-[10px] text-slate-500 font-mono mt-0.5">
                       <span x-text="t.ip + ':' + t.port"></span>
@@ -1474,6 +1489,7 @@ function shodanify() {
     scanning: {},
     scanningAll: false,
     targetSearch: '',
+    targetType: 'sites',
     loading: true,
     search: '',
     dupSearch: '',
@@ -1564,22 +1580,33 @@ function shodanify() {
         if (!(r.http_status != null || r.has_ssl || webPorts.has(r.port))) continue;
         const scheme = (r.has_ssl || r.port === 443 || r.port === 8443) ? 'https' : 'http';
         const def = (scheme === 'https' && r.port === 443) || (scheme === 'http' && r.port === 80);
+        // Scan/display the real domain when we have one, not the cloud PTR.
+        const host = r.primary_domain || r.hostname;
         out.push({
           key: r.ip_str + ':' + r.port, ip: r.ip_str, port: r.port,
-          hostname: r.hostname, hostnames: r.hostnames || [],
-          org: r.org || r.isp, country_code: r.country_code,
+          hostname: host, display: host || r.ip_str,
+          is_site: r.is_site, primary_domain: r.primary_domain,
+          org: r.org || r.isp, country_code: r.country_code, cloud: r.cloud,
           vulns_count: r.vulns_count, max_cvss: r.max_cvss, scheme,
-          url: `${scheme}://${r.hostname || r.ip_str}` + (def ? '' : `:${r.port}`),
+          url: `${scheme}://${host || r.ip_str}` + (def ? '' : `:${r.port}`),
         });
       }
       return out;
     },
 
+    get targetCounts() {
+      let sites = 0;
+      for (const t of this.targets) if (t.is_site) sites++;
+      return { all: this.targets.length, sites, infra: this.targets.length - sites };
+    },
+
     get filteredTargets() {
       const q = this.targetSearch.trim().toLowerCase();
       let t = this.targets;
+      if (this.targetType === 'sites') t = t.filter(x => x.is_site);
+      else if (this.targetType === 'infra') t = t.filter(x => !x.is_site);
       if (q) t = t.filter(x =>
-        x.ip.includes(q) || (x.hostname || '').toLowerCase().includes(q) ||
+        x.ip.includes(q) || (x.display || '').toLowerCase().includes(q) ||
         (x.org || '').toLowerCase().includes(q) ||
         (this.scans[x.key]?.rdns || '').toLowerCase().includes(q));
       return t;
@@ -1710,6 +1737,8 @@ function shodanify() {
         if (tok === 'expired') ok = !!h.ssl_expired;
         else if (tok === 'ssl' || tok === 'tls') ok = !!h.has_ssl;
         else if (tok === 'vuln' || tok === 'cve') ok = h.vulns_count > 0;
+        else if (tok === 'site' || tok === 'website') ok = !!h.is_site;
+        else if (tok === 'infra') ok = !h.is_site;
         else {
           const ci = tok.indexOf(':');
           if (ci > 0 && fields[tok.slice(0, ci)]) {

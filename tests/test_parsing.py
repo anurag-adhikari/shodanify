@@ -1,4 +1,23 @@
-from shodanify.parsing import cvss_severity, cert_date, parse_record, record_summary
+from shodanify.parsing import (
+    cvss_severity, cert_date, parse_record, record_summary, classify_site,
+)
+
+
+def test_classify_site():
+    # Real org domain → a site
+    assert classify_site(["acme.com.au"], None) == (True, "acme.com.au")
+    # Cloud PTR only → infrastructure
+    assert classify_site(["amazonaws.com"], None) == (False, None)
+    assert classify_site(["vultrusercontent.com"], None) == (False, None)
+    # Real domain wins even when a cloud domain is also present
+    assert classify_site(["amazonaws.com", "acme.com"], None)[0] is True
+    # TLS cert CN reveals the real site when no real hostname exists
+    assert classify_site(["amazonaws.com"], "www.acme.io") == (True, "acme.io")
+    # Self-signed cert with an IP / single-label CN is not a domain
+    assert classify_site([], "1.2.3.4") == (False, None)
+    assert classify_site([], "localhost") == (False, None)
+    # Prefer the apex domain over a deeper one
+    assert classify_site(["acme.com", "shop.acme.com"], None)[1] == "acme.com"
 
 
 def test_cvss_severity_buckets():
