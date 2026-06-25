@@ -31,6 +31,11 @@ def api_stats():
     return jsonify(_store().stats())
 
 
+@bp.route("/api/duplicates")
+def api_duplicates():
+    return jsonify(_store().duplicates())
+
+
 @bp.route("/api/reload", methods=["POST"])
 def api_reload():
     store = _store().load()

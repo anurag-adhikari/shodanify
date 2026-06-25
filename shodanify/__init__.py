@@ -46,6 +46,8 @@ def create_app(config=Config):
         static_folder=str(root / "static"),
     )
     app.config.from_object(config)
+    # Pick up template edits without a restart during local development.
+    app.config["TEMPLATES_AUTO_RELOAD"] = True
 
     store = DataStore(config.DATA_DIR, workers=config.LOAD_WORKERS).load()
     app.config["DATA_STORE"] = store

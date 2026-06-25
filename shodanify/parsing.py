@@ -163,6 +163,8 @@ def record_summary(r):
         "timestamp": r["timestamp"],
         "vulns_count": len(r["vulns"]),
         "max_cvss": max((v["cvss"] for v in r["vulns"]), default=0),
+        "cves": [v["cve"] for v in r["vulns"]],
+        "verified_cves": sum(1 for v in r["vulns"] if v["verified"]),
         "http_title": http["title"] if http else None,
         "http_status": http["status"] if http else None,
         "tech": [t["name"] for t in http["components"]] if http else [],

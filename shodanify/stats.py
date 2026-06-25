@@ -67,10 +67,12 @@ def compute_stats(records, duplicates_removed=0):
     top_countries = sorted(countries.values(), key=lambda x: x["count"], reverse=True)[:15]
     top_orgs = [{"org": k, "count": v}
                 for k, v in sorted(orgs.items(), key=lambda x: x[1], reverse=True)][:10]
-    top_vulns = sorted(cve_map.values(), key=lambda x: x["max_cvss"], reverse=True)[:50]
-    for tv in top_vulns:
+    # Full CVE list (sorted by severity) so the vulnerabilities tab can search
+    # and filter across every CVE, not just the worst 50.
+    all_vulns = sorted(cve_map.values(), key=lambda x: x["max_cvss"], reverse=True)
+    for tv in all_vulns:
         tv["host_count"] = len(tv["hosts"])
-        tv["hosts"] = tv["hosts"][:10]
+        tv["hosts"] = tv["hosts"][:25]
 
     tech_list = [{**t, "versions": sorted(t["versions"])} for t in tech_map.values()]
     tech_list.sort(key=lambda x: x["count"], reverse=True)
@@ -87,6 +89,6 @@ def compute_stats(records, duplicates_removed=0):
         "top_ports": top_ports,
         "top_countries": top_countries,
         "top_orgs": top_orgs,
-        "top_vulns": top_vulns,
+        "vulns": all_vulns,
         "tech": tech_list,
     }
