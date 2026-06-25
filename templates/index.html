@@ -154,7 +154,7 @@
 
     <!-- ═══ TAB NAV ══════════════════════════════════════════════════════ -->
     <div class="flex items-center gap-1 mb-6 border-b border-slate-800 pb-0">
-      <template x-for="tab in ['overview','hosts','vulnerabilities','technologies','analytics','duplicates']">
+      <template x-for="tab in ['overview','hosts','vulnerabilities','technologies','analytics','targets','duplicates']">
         <button @click="view = tab"
           class="px-4 py-2.5 text-sm font-semibold capitalize transition border-b-2 -mb-px flex items-center gap-1.5"
           :class="view === tab
@@ -821,6 +821,155 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!--  TARGETS TAB (live website health checks)                           -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div x-show="view === 'targets'">
+      <!-- Control bar -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4">
+        <div class="flex flex-wrap items-center gap-3">
+          <div>
+            <div class="text-sm font-semibold text-slate-200">Website Health</div>
+            <p class="text-[11px] text-slate-500 mt-0.5 max-w-md leading-relaxed">
+              Live TCP + HTTP checks on the web-facing hosts in your data, so you can tell each
+              organisation what's exposed and whether their site is up. Identifies as
+              <span class="font-mono text-slate-400">Shodanify-Healthcheck</span>.
+            </p>
+          </div>
+          <div class="relative ml-auto min-w-52">
+            <input type="text" x-model="targetSearch" placeholder="Filter by domain, IP or org…"
+              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500">
+          </div>
+          <button @click="scanAll()" :disabled="scanningAll || !filteredTargets.length"
+            class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-orange-500/90 hover:bg-orange-500 text-white transition disabled:opacity-50 disabled:cursor-not-allowed">
+            <svg class="w-4 h-4" :class="scanningAll?'animate-spin':''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                :d="scanningAll ? 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15' : 'M13 10V3L4 14h7v7l9-11h-7z'"/>
+            </svg>
+            <span x-text="scanningAll ? 'Scanning…' : `Scan all (${filteredTargets.length})`"></span>
+          </button>
+        </div>
+        <!-- Summary chips -->
+        <div class="flex flex-wrap gap-2 mt-3 text-xs">
+          <span class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400">
+            <span class="text-slate-200 font-semibold" x-text="filteredTargets.length"></span> targets
+          </span>
+          <span class="px-2.5 py-1 rounded-lg bg-green-950/50 border border-green-900 text-green-400">
+            <span class="font-semibold" x-text="targetSummary.up"></span> up
+          </span>
+          <span class="px-2.5 py-1 rounded-lg bg-yellow-950/50 border border-yellow-900 text-yellow-400">
+            <span class="font-semibold" x-text="targetSummary.warn"></span> http errors
+          </span>
+          <span class="px-2.5 py-1 rounded-lg bg-red-950/50 border border-red-900 text-red-400">
+            <span class="font-semibold" x-text="targetSummary.down"></span> down
+          </span>
+          <span class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400">
+            <span class="font-semibold" x-text="targetSummary.open + targetSummary.unscanned"></span> unscanned / other
+          </span>
+        </div>
+      </div>
+
+      <!-- Targets table -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-500 uppercase tracking-wider text-[10px]">
+                <th class="text-left px-4 py-3">Website / Domain</th>
+                <th class="text-left px-3 py-3">Org</th>
+                <th class="text-left px-3 py-3">Status</th>
+                <th class="text-left px-3 py-3">Response</th>
+                <th class="text-center px-3 py-3">Issues</th>
+                <th class="text-left px-3 py-3">Last scanned</th>
+                <th class="text-right px-4 py-3">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="t in filteredTargets" :key="t.key">
+                <tr class="border-b border-slate-800/50 hover:bg-slate-800/40 transition">
+                  <!-- Website / domain -->
+                  <td class="px-4 py-3">
+                    <div class="flex items-center gap-2">
+                      <a :href="t.url" target="_blank" rel="noopener noreferrer"
+                        class="text-slate-200 font-semibold hover:text-orange-400 transition truncate max-w-[220px]"
+                        x-text="t.hostname || t.ip"></a>
+                      <svg class="w-3 h-3 text-slate-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                      </svg>
+                    </div>
+                    <div class="text-[10px] text-slate-500 font-mono mt-0.5">
+                      <span x-text="t.ip + ':' + t.port"></span>
+                      <span class="text-purple-400/70 ml-1 uppercase" x-text="t.scheme"></span>
+                      <template x-if="scans[t.key]?.rdns && scans[t.key].rdns !== t.hostname">
+                        <span class="text-slate-600 ml-1" x-text="'↳ ' + scans[t.key].rdns"></span>
+                      </template>
+                    </div>
+                  </td>
+                  <!-- Org -->
+                  <td class="px-3 py-3 text-slate-400 max-w-[160px]">
+                    <span class="truncate block" x-text="t.org || '—'"></span>
+                    <span class="text-slate-600" x-text="flag(t.country_code)"></span>
+                  </td>
+                  <!-- Status -->
+                  <td class="px-3 py-3">
+                    <span class="tag-badge border" :class="scanStatus(t.key).cls" x-text="scanStatus(t.key).label"></span>
+                    <template x-if="scans[t.key]?.title">
+                      <div class="text-[10px] text-slate-500 mt-1 truncate max-w-[180px]" x-text="scans[t.key].title"></div>
+                    </template>
+                    <template x-if="scans[t.key]?.redirected">
+                      <div class="text-[10px] text-blue-400/70 mt-0.5 truncate max-w-[180px]" x-text="'→ ' + scans[t.key].final_url"></div>
+                    </template>
+                  </td>
+                  <!-- Response time -->
+                  <td class="px-3 py-3 text-slate-400 whitespace-nowrap">
+                    <template x-if="scans[t.key]?.http_ms != null">
+                      <span :class="scans[t.key].http_ms < 300 ? 'text-green-400' : scans[t.key].http_ms < 1000 ? 'text-yellow-400' : 'text-orange-400'"
+                        x-text="scans[t.key].http_ms + ' ms'"></span>
+                    </template>
+                    <template x-if="scans[t.key]?.http_ms == null && scans[t.key]?.tcp_ms != null">
+                      <span class="text-slate-500" x-text="'tcp ' + scans[t.key].tcp_ms + ' ms'"></span>
+                    </template>
+                    <template x-if="!scans[t.key]">
+                      <span class="text-slate-700">—</span>
+                    </template>
+                  </td>
+                  <!-- Issues (CVEs) -->
+                  <td class="px-3 py-3 text-center">
+                    <template x-if="t.vulns_count > 0">
+                      <button @click="openHostByIp(t.ip, t.port)"
+                        class="font-bold hover:underline" :class="severityColor(t.max_cvss)"
+                        x-text="t.vulns_count + ' CVE'"></button>
+                    </template>
+                    <template x-if="t.vulns_count === 0">
+                      <span class="text-slate-700">—</span>
+                    </template>
+                  </td>
+                  <!-- Last scanned -->
+                  <td class="px-3 py-3 text-slate-500 whitespace-nowrap" :title="scans[t.key] ? formatDate(scans[t.key].scanned_at) : ''">
+                    <span x-text="relTime(scans[t.key]?.scanned_at)"></span>
+                  </td>
+                  <!-- Action -->
+                  <td class="px-4 py-3 text-right">
+                    <button @click="scanOne(t)" :disabled="scanning[t.key]"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition disabled:opacity-50">
+                      <svg class="w-3 h-3" :class="scanning[t.key]?'animate-spin':''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                          :d="scanning[t.key] ? 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15' : 'M9 5l7 7-7 7'"/>
+                      </svg>
+                      <span x-text="scanning[t.key] ? 'Scanning' : (scans[t.key] ? 'Rescan' : 'Scan')"></span>
+                    </button>
+                  </td>
+                </tr>
+              </template>
+              <template x-if="filteredTargets.length === 0">
+                <tr><td colspan="7" class="text-center py-12 text-slate-500">No web-facing targets for the current filter.</td></tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
     <!--  DUPLICATES TAB                                                      -->
     <!-- ═══════════════════════════════════════════════════════════════════ -->
     <div x-show="view === 'duplicates'">
@@ -1321,6 +1470,10 @@ function shodanify() {
     stats: null,
     duplicates: null,
     globalFilters: [],
+    scans: {},
+    scanning: {},
+    scanningAll: false,
+    targetSearch: '',
     loading: true,
     search: '',
     dupSearch: '',
@@ -1335,8 +1488,12 @@ function shodanify() {
     modalTab: 'info',
 
     async init() {
-      await Promise.all([this.fetchRecords(), this.fetchStats(), this.fetchDuplicates()]);
+      await Promise.all([this.fetchRecords(), this.fetchStats(), this.fetchDuplicates(), this.fetchScans()]);
       this.loading = false;
+    },
+
+    async fetchScans() {
+      try { this.scans = await (await fetch('/api/scans')).json(); } catch { this.scans = {}; }
     },
 
     async fetchRecords() {
@@ -1397,6 +1554,82 @@ function shodanify() {
     },
     get baseRecords() {
       return this.globalFilters.length ? this.records.filter(h => this.matchFacets(h)) : this.records;
+    },
+
+    // ── Targets: live website health checks ───────────────────────────────
+    get targets() {
+      const webPorts = new Set([80, 443, 8080, 8443, 8000, 8888, 9443, 3000, 5000]);
+      const out = [];
+      for (const r of this.baseRecords) {
+        if (!(r.http_status != null || r.has_ssl || webPorts.has(r.port))) continue;
+        const scheme = (r.has_ssl || r.port === 443 || r.port === 8443) ? 'https' : 'http';
+        const def = (scheme === 'https' && r.port === 443) || (scheme === 'http' && r.port === 80);
+        out.push({
+          key: r.ip_str + ':' + r.port, ip: r.ip_str, port: r.port,
+          hostname: r.hostname, hostnames: r.hostnames || [],
+          org: r.org || r.isp, country_code: r.country_code,
+          vulns_count: r.vulns_count, max_cvss: r.max_cvss, scheme,
+          url: `${scheme}://${r.hostname || r.ip_str}` + (def ? '' : `:${r.port}`),
+        });
+      }
+      return out;
+    },
+
+    get filteredTargets() {
+      const q = this.targetSearch.trim().toLowerCase();
+      let t = this.targets;
+      if (q) t = t.filter(x =>
+        x.ip.includes(q) || (x.hostname || '').toLowerCase().includes(q) ||
+        (x.org || '').toLowerCase().includes(q) ||
+        (this.scans[x.key]?.rdns || '').toLowerCase().includes(q));
+      return t;
+    },
+
+    get targetSummary() {
+      const s = { up: 0, warn: 0, down: 0, open: 0, unscanned: 0 };
+      for (const t of this.filteredTargets) s[this.scanStatus(t.key).tone]++;
+      return s;
+    },
+
+    scanStatus(key) {
+      const s = this.scans[key];
+      if (!s) return { label: 'Never scanned', tone: 'unscanned', cls: 'bg-slate-800 text-slate-500 border-slate-700' };
+      if (!s.tcp_open) return { label: 'Unreachable', tone: 'down', cls: 'bg-red-950 text-red-400 border-red-800' };
+      if (s.http_status == null) return { label: 'Port open · no HTTP', tone: 'open', cls: 'bg-slate-800 text-slate-400 border-slate-600' };
+      if (s.http_ok) return { label: 'Up · ' + s.http_status, tone: 'up', cls: 'bg-green-950 text-green-400 border-green-800' };
+      if (s.http_status >= 500) return { label: 'Server error · ' + s.http_status, tone: 'down', cls: 'bg-red-950 text-red-400 border-red-800' };
+      return { label: 'HTTP ' + s.http_status, tone: 'warn', cls: 'bg-yellow-950 text-yellow-400 border-yellow-800' };
+    },
+
+    _chunk(arr, n) { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; },
+
+    async _postScan(batch) {
+      const res = await fetch('/api/scan', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targets: batch.map(t => ({ ip: t.ip, port: t.port, hostname: t.hostname })) }),
+      });
+      const d = await res.json();
+      for (const r of (d.results || [])) this.scans[r.ip + ':' + r.port] = r;
+    },
+
+    async scanOne(t) {
+      this.scanning[t.key] = true;
+      try { await this._postScan([t]); }
+      finally { delete this.scanning[t.key]; }
+    },
+
+    async scanAll() {
+      if (this.scanningAll) return;
+      const targets = this.filteredTargets;
+      if (!targets.length) return;
+      this.scanningAll = true;
+      targets.forEach(t => this.scanning[t.key] = true);
+      // Fire chunks concurrently so the UI fills in progressively.
+      await Promise.all(this._chunk(targets, 12).map(async ch => {
+        try { await this._postScan(ch); }
+        finally { ch.forEach(t => delete this.scanning[t.key]); }
+      }));
+      this.scanningAll = false;
     },
 
     clearFilters() {
@@ -1685,6 +1918,16 @@ function shodanify() {
 
     formatDateShort(ts) {
       if (!ts) return '—';
+      return new Date(ts).toLocaleDateString();
+    },
+
+    relTime(ts) {
+      if (!ts) return 'never';
+      const s = (Date.now() - new Date(ts).getTime()) / 1000;
+      if (s < 60) return 'just now';
+      if (s < 3600) return Math.floor(s / 60) + 'm ago';
+      if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+      if (s < 604800) return Math.floor(s / 86400) + 'd ago';
       return new Date(ts).toLocaleDateString();
     },
   };

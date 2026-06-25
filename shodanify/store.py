@@ -32,7 +32,8 @@ def _iter_data_files(data_dir):
     seen = set()
     for pattern in ("*.json.gz", "*.gz", "*.json"):
         for path in data_dir.glob(pattern):
-            if path.is_file() and path not in seen:
+            # Skip dotfiles (e.g. the scanner's .scan_results.json) and re-matches.
+            if path.is_file() and not path.name.startswith(".") and path not in seen:
                 seen.add(path)
                 yield path
 

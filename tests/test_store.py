@@ -58,6 +58,16 @@ def test_duplicates_payload(tmp_path):
     assert {o["source"] for o in group["occurrences"]} == {"old.json", "new.json"}
 
 
+def test_ignores_dotfiles(tmp_path):
+    # The scanner persists .scan_results.json into the data dir; the loader
+    # must not read dotfiles back in as records.
+    _write(tmp_path / "real.json", [_rec("1.1.1.1", 80, "2024")])
+    (tmp_path / ".scan_results.json").write_text('{"1.1.1.1:80": {"http_status": 200}}')
+    store = DataStore(tmp_path).load()
+    assert store.files_loaded == 1
+    assert len(store.records) == 1
+
+
 def test_no_double_count(tmp_path):
     # A *.json.gz file matches two glob patterns but must load once.
     _write(tmp_path / "x.json.gz", [_rec("9.9.9.9", 1, "2024")], gz=True)

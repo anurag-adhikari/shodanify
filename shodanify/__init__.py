@@ -7,6 +7,7 @@ from flask import Flask, request
 
 from .config import Config
 from .routes import bp
+from .scan_store import ScanStore
 from .store import DataStore
 
 _GZIP_MIN_BYTES = 1024
@@ -51,6 +52,7 @@ def create_app(config=Config):
 
     store = DataStore(config.DATA_DIR, workers=config.LOAD_WORKERS).load()
     app.config["DATA_STORE"] = store
+    app.config["SCAN_STORE_OBJ"] = ScanStore(config.SCAN_STORE)
 
     app.register_blueprint(bp)
     app.after_request(_gzip_response)

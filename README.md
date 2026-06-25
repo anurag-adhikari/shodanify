@@ -12,6 +12,8 @@ A local web dashboard for browsing and analysing Shodan bulk export files. Drop 
 - **Hosts table** — sortable and filterable list of every host with IP, port, org, location, detected tech stack, CVE count, and CVSS score
 - **Vulnerability view** — all CVEs across the dataset ranked by CVSS, filterable by severity and verification status, with per-CVE affected host list including hostnames
 - **Technology view** — every fingerprinted technology with version info and host count
+- **Analytics view** — risk-landscape scatter, port×severity correlation heatmap, severity/TLS donuts, CVSS histogram, most-exposed orgs, tech adoption and a scan timeline. Click any chart segment to apply a cross-tab facet that filters every view at once
+- **Targets view** — live website health checks for the web-facing hosts: TCP reachability, HTTP status, redirects, page title, response time and reverse DNS, scanned in parallel. Results are persisted with a last-scanned timestamp so you know when each target was last checked
 - **Host detail modal** — click any host to drill into full detail across five tabs:
   - **Info** — location, ASN, org/ISP, hostnames, domains, cloud provider, CPE identifiers
   - **HTTP** — status code, server header, page title, detected components
@@ -120,7 +122,12 @@ The frontend talks to a small JSON API if you want to query it directly:
 | `/api/records` | GET | All records (summary fields) |
 | `/api/records/<ip>/<port>` | GET | Full detail for a single host |
 | `/api/stats` | GET | Aggregated stats, top ports/countries/CVEs/tech |
+| `/api/duplicates` | GET | IP:port collisions across files — kept vs superseded scans |
+| `/api/scans` | GET | All persisted health-check results, keyed by `ip:port` |
+| `/api/scan` | POST | Run live TCP/HTTP health checks for a batch of targets (concurrent). Body: `{ "targets": [{ "ip": "1.2.3.4", "port": 443 }] }`. Only scans targets present in the loaded dataset |
 | `/api/reload` | POST | Flush cache and reload all files from `data/` |
+
+> **Active scanning note:** the Targets view makes outbound TCP/HTTP requests to the hosts in your data to check whether their sites are up. It sends a single request per target, identifies itself with a `Shodanify-Healthcheck` User-Agent, and only contacts `ip:port` pairs already present in your dataset. Use it on hosts you are authorised to assess.
 
 ---
 
