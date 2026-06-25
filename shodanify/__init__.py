@@ -1,6 +1,7 @@
 """Shodanify application factory."""
 import gzip
 import logging
+from pathlib import Path
 
 from flask import Flask, request
 
@@ -37,7 +38,13 @@ def _gzip_response(response):
 
 def create_app(config=Config):
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    app = Flask(__name__)
+    # templates/ and static/ live at the project root, one level above the package.
+    root = Path(__file__).resolve().parent.parent
+    app = Flask(
+        __name__,
+        template_folder=str(root / "templates"),
+        static_folder=str(root / "static"),
+    )
     app.config.from_object(config)
 
     store = DataStore(config.DATA_DIR, workers=config.LOAD_WORKERS).load()
