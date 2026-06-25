@@ -876,6 +876,50 @@
             <span class="font-semibold" x-text="targetSummary.open + targetSummary.unscanned"></span> unscanned / other
           </span>
         </div>
+        <!-- Actions -->
+        <div class="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-800">
+          <button @click="generateOrgReport()" :disabled="!filteredTargets.length"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition disabled:opacity-50">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            Org report (PDF)
+          </button>
+          <button @click="exportTargetsCSV()" :disabled="!filteredTargets.length"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition disabled:opacity-50">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            Export CSV
+          </button>
+          <button @click="showInfraEditor = !showInfraEditor"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition ml-auto">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            Tune infrastructure list
+          </button>
+        </div>
+
+        <!-- Infra-domain editor -->
+        <div x-show="showInfraEditor" x-collapse class="mt-3 pt-3 border-t border-slate-800">
+          <div class="flex items-start justify-between gap-3 mb-2">
+            <p class="text-[11px] text-slate-500 leading-relaxed max-w-lg">
+              A host counts as <span class="text-slate-300">infrastructure</span> (not a real website) when its only
+              domain matches one of these cloud/hosting suffixes. Edits apply live and are saved in this browser.
+            </p>
+            <button @click="resetInfra()" class="text-[11px] text-slate-400 hover:text-orange-400 whitespace-nowrap">Reset to defaults</button>
+          </div>
+          <div class="flex gap-2 mb-3">
+            <input type="text" x-model="newInfraDomain" @keydown.enter="addInfraDomain()"
+              placeholder="add domain, e.g. mycloudhost.com"
+              class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500">
+            <button @click="addInfraDomain()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-orange-500/90 hover:bg-orange-500 text-white transition">Add</button>
+          </div>
+          <div class="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+            <template x-for="d in infraList" :key="d">
+              <span class="group inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-[11px] border"
+                :class="isCustomInfra(d) ? 'bg-orange-950/30 border-orange-800 text-orange-300' : 'bg-slate-800 border-slate-700 text-slate-400'">
+                <span class="font-mono" x-text="d"></span>
+                <button @click="removeInfraDomain(d)" class="text-slate-500 group-hover:text-red-400 font-bold px-0.5">✕</button>
+              </span>
+            </template>
+          </div>
+        </div>
       </div>
 
       <!-- Targets table -->
@@ -1490,6 +1534,11 @@ function shodanify() {
     scanningAll: false,
     targetSearch: '',
     targetType: 'sites',
+    infraDefaults: [],
+    infraAdded: [],
+    infraRemoved: [],
+    showInfraEditor: false,
+    newInfraDomain: '',
     loading: true,
     search: '',
     dupSearch: '',
@@ -1504,8 +1553,14 @@ function shodanify() {
     modalTab: 'info',
 
     async init() {
-      await Promise.all([this.fetchRecords(), this.fetchStats(), this.fetchDuplicates(), this.fetchScans()]);
+      this.loadInfraPrefs();
+      await Promise.all([this.fetchRecords(), this.fetchStats(), this.fetchDuplicates(),
+        this.fetchScans(), this.fetchInfraDomains()]);
       this.loading = false;
+    },
+
+    async fetchInfraDomains() {
+      try { this.infraDefaults = await (await fetch('/api/infra-domains')).json(); } catch { this.infraDefaults = []; }
     },
 
     async fetchScans() {
@@ -1572,6 +1627,68 @@ function shodanify() {
       return this.globalFilters.length ? this.records.filter(h => this.matchFacets(h)) : this.records;
     },
 
+    // ── Site classification (client-side so the infra list is editable) ───
+    get effectiveInfra() {
+      const removed = new Set(this.infraRemoved);
+      const set = new Set(this.infraDefaults.filter(d => !removed.has(d)));
+      for (const d of this.infraAdded) set.add(d);
+      return set;
+    },
+    _looksLikeDomain(s) {
+      s = (s || '').toLowerCase().trim();
+      if (!s || s.includes(' ') || !s.includes('.')) return false;
+      return /^[a-z]+$/.test(s.split('.').pop());
+    },
+    _isInfraDomain(d, set) {
+      d = (d || '').toLowerCase().replace(/^\.+|\.+$/g, '');
+      for (const x of set) if (d === x || d.endsWith('.' + x)) return true;
+      return false;
+    },
+    classifySite(domains, sslCn) {
+      const set = this.effectiveInfra;
+      const cands = (domains || []).filter(d => this._looksLikeDomain(d));
+      if (sslCn) {
+        let cn = sslCn.toLowerCase().replace(/^\*+/, '').replace(/^\.+|\.+$/g, '');
+        if (cn.startsWith('www.')) cn = cn.slice(4);
+        if (this._looksLikeDomain(cn)) cands.push(cn);
+      }
+      const real = [...new Set(cands)].filter(d => !this._isInfraDomain(d, set));
+      if (!real.length) return { is_site: false, primary: null };
+      real.sort((a, b) => ((a.match(/\./g) || []).length - (b.match(/\./g) || []).length) || (a.length - b.length));
+      return { is_site: true, primary: real[0] };
+    },
+    siteInfo(r) { return this.classifySite(r.domains, r.ssl_cn); },
+
+    // Infra-domain list editing (persisted per-browser).
+    loadInfraPrefs() {
+      try {
+        const p = JSON.parse(localStorage.getItem('shodanify.infra') || '{}');
+        this.infraAdded = p.added || [];
+        this.infraRemoved = p.removed || [];
+      } catch { /* ignore */ }
+    },
+    saveInfraPrefs() {
+      localStorage.setItem('shodanify.infra', JSON.stringify({ added: this.infraAdded, removed: this.infraRemoved }));
+    },
+    get infraList() {
+      return [...this.effectiveInfra].sort();
+    },
+    isCustomInfra(d) { return this.infraAdded.includes(d); },
+    addInfraDomain() {
+      const d = this.newInfraDomain.trim().toLowerCase().replace(/^\.+|\.+$/g, '');
+      if (!d || !this._looksLikeDomain(d)) return;
+      this.infraRemoved = this.infraRemoved.filter(x => x !== d);
+      if (!this.effectiveInfra.has(d)) this.infraAdded.push(d);
+      this.newInfraDomain = '';
+      this.saveInfraPrefs();
+    },
+    removeInfraDomain(d) {
+      if (this.infraAdded.includes(d)) this.infraAdded = this.infraAdded.filter(x => x !== d);
+      else if (!this.infraRemoved.includes(d)) this.infraRemoved.push(d);
+      this.saveInfraPrefs();
+    },
+    resetInfra() { this.infraAdded = []; this.infraRemoved = []; this.saveInfraPrefs(); },
+
     // ── Targets: live website health checks ───────────────────────────────
     get targets() {
       const webPorts = new Set([80, 443, 8080, 8443, 8000, 8888, 9443, 3000, 5000]);
@@ -1580,14 +1697,15 @@ function shodanify() {
         if (!(r.http_status != null || r.has_ssl || webPorts.has(r.port))) continue;
         const scheme = (r.has_ssl || r.port === 443 || r.port === 8443) ? 'https' : 'http';
         const def = (scheme === 'https' && r.port === 443) || (scheme === 'http' && r.port === 80);
+        const site = this.siteInfo(r);
         // Scan/display the real domain when we have one, not the cloud PTR.
-        const host = r.primary_domain || r.hostname;
+        const host = site.primary || r.hostname;
         out.push({
           key: r.ip_str + ':' + r.port, ip: r.ip_str, port: r.port,
           hostname: host, display: host || r.ip_str,
-          is_site: r.is_site, primary_domain: r.primary_domain,
+          is_site: site.is_site, primary_domain: site.primary,
           org: r.org || r.isp, country_code: r.country_code, cloud: r.cloud,
-          vulns_count: r.vulns_count, max_cvss: r.max_cvss, scheme,
+          vulns_count: r.vulns_count, max_cvss: r.max_cvss, cves: r.cves || [], scheme,
           url: `${scheme}://${host || r.ip_str}` + (def ? '' : `:${r.port}`),
         });
       }
@@ -1657,6 +1775,111 @@ function shodanify() {
         finally { ch.forEach(t => delete this.scanning[t.key]); }
       }));
       this.scanningAll = false;
+    },
+
+    // ── Exports / reports ─────────────────────────────────────────────────
+    _download(content, filename, mime) {
+      const blob = new Blob([content], { type: mime });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    },
+    _csv(v) {
+      v = v == null ? '' : String(v);
+      return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    },
+    exportTargetsCSV() {
+      const head = ['org', 'website', 'ip', 'port', 'scheme', 'url', 'is_site', 'status',
+        'http_status', 'response_ms', 'last_scanned', 'rdns', 'redirected_to',
+        'cve_count', 'max_cvss', 'cves'];
+      const rows = [head];
+      for (const t of this.filteredTargets) {
+        const s = this.scans[t.key] || {};
+        rows.push([t.org, t.display, t.ip, t.port, t.scheme, t.url, t.is_site ? 'yes' : 'no',
+          this.scanStatus(t.key).label, s.http_status ?? '', s.http_ms ?? '', s.scanned_at ?? '',
+          s.rdns ?? '', s.redirected ? (s.final_url || '') : '', t.vulns_count, t.max_cvss || '',
+          (t.cves || []).join(' ')]);
+      }
+      const csv = rows.map(r => r.map(c => this._csv(c)).join(',')).join('\n');
+      this._download(csv, `shodanify-targets-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
+    },
+
+    generateOrgReport() {
+      const targets = this.filteredTargets;
+      if (!targets.length) return;
+      const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const cveMap = {};
+      for (const v of (this.stats?.vulns || [])) cveMap[v.cve] = v;
+      const groups = {};
+      for (const t of targets) (groups[t.org || 'Unknown'] = groups[t.org || 'Unknown'] || []).push(t);
+
+      let body = '';
+      for (const org of Object.keys(groups).sort()) {
+        const ts = groups[org];
+        const up = ts.filter(t => this.scanStatus(t.key).tone === 'up').length;
+        const withCve = ts.filter(t => t.vulns_count > 0).length;
+        const cveSet = new Set();
+        ts.forEach(t => (t.cves || []).forEach(c => cveSet.add(c)));
+        const cves = [...cveSet].map(c => cveMap[c]).filter(Boolean).sort((a, b) => b.max_cvss - a.max_cvss);
+        const crit = cves.filter(c => c.max_cvss >= 9).length;
+
+        const siteRows = ts.map(t => {
+          const s = this.scans[t.key] || {};
+          const st = this.scanStatus(t.key);
+          return `<tr>
+            <td><a href="${esc(t.url)}">${esc(t.display)}</a></td>
+            <td class="mono">${esc(t.ip)}:${t.port}</td>
+            <td><span class="badge ${st.tone}">${esc(st.label)}</span></td>
+            <td>${s.http_ms != null ? s.http_ms + ' ms' : '—'}</td>
+            <td>${t.vulns_count || '—'}</td>
+            <td>${t.max_cvss ? t.max_cvss.toFixed(1) : '—'}</td>
+            <td>${s.scanned_at ? esc(this.formatDate(s.scanned_at)) : 'not scanned'}</td>
+          </tr>`;
+        }).join('');
+
+        const cveRows = cves.map(c => `<tr>
+            <td class="mono">${esc(c.cve)}</td>
+            <td><span class="sev ${c.severity}">${esc(c.severity.toUpperCase())}</span> ${c.max_cvss.toFixed(1)}</td>
+            <td>${c.host_count}</td>
+            <td>${esc(c.summary || '')}</td>
+          </tr>`).join('') || '<tr><td colspan="4" class="muted">No known CVEs for this organisation.</td></tr>';
+
+        body += `<section>
+          <h2>${esc(org)}</h2>
+          <div class="cards">
+            <div class="card"><b>${ts.length}</b><span>web targets</span></div>
+            <div class="card"><b>${up}</b><span>confirmed up</span></div>
+            <div class="card"><b>${withCve}</b><span>with CVEs</span></div>
+            <div class="card ${crit ? 'danger' : ''}"><b>${crit}</b><span>critical CVEs</span></div>
+          </div>
+          <h3>Web targets</h3>
+          <table><thead><tr><th>Website</th><th>Host</th><th>Status</th><th>Resp.</th><th>CVEs</th><th>Max CVSS</th><th>Last checked</th></tr></thead><tbody>${siteRows}</tbody></table>
+          <h3>Vulnerabilities (${cves.length})</h3>
+          <table><thead><tr><th>CVE</th><th>Severity</th><th>Hosts</th><th>Summary</th></tr></thead><tbody>${cveRows}</tbody></table>
+        </section>`;
+      }
+
+      const css = `*{box-sizing:border-box}body{font:13px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#1e293b;max-width:900px;margin:0 auto;padding:32px}
+        h1{font-size:22px;margin:0 0 4px}h2{font-size:18px;border-bottom:2px solid #f97316;padding-bottom:4px;margin:32px 0 12px}h3{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin:18px 0 6px}
+        .sub{color:#64748b;margin:0 0 20px}.mono{font-family:ui-monospace,monospace;font-size:12px}.muted{color:#94a3b8;text-align:center}
+        table{width:100%;border-collapse:collapse;margin-bottom:8px}th{text-align:left;font-size:10px;text-transform:uppercase;color:#64748b;border-bottom:1px solid #cbd5e1;padding:6px 8px}
+        td{padding:6px 8px;border-bottom:1px solid #eef2f7;vertical-align:top}a{color:#ea580c;text-decoration:none}
+        .cards{display:flex;gap:10px;margin:8px 0}.card{flex:1;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;text-align:center}.card b{display:block;font-size:22px}.card span{font-size:11px;color:#64748b}.card.danger b{color:#dc2626}
+        .badge{padding:1px 7px;border-radius:99px;font-size:11px;font-weight:600}.badge.up{background:#dcfce7;color:#166534}.badge.warn{background:#fef9c3;color:#854d0e}.badge.down{background:#fee2e2;color:#991b1b}.badge.open,.badge.unscanned{background:#f1f5f9;color:#475569}
+        .sev{font-weight:700;font-size:11px}.sev.critical{color:#dc2626}.sev.high{color:#ea580c}.sev.medium{color:#ca8a04}.sev.low{color:#2563eb}.sev.none{color:#64748b}
+        @media print{.noprint{display:none}body{padding:0}}
+        .bar{position:sticky;top:0;background:#fff;padding:8px 0;display:flex;gap:8px;border-bottom:1px solid #e2e8f0;margin-bottom:16px}
+        button{font:inherit;padding:6px 14px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;cursor:pointer}`;
+      const html = `<!doctype html><html><head><meta charset="utf-8"><title>Security Exposure Report</title><style>${css}</style></head><body>
+        <div class="bar noprint"><button onclick="window.print()">Print / Save as PDF</button></div>
+        <h1>Security Exposure Report</h1>
+        <p class="sub">Generated ${esc(new Date().toLocaleString())} · ${targets.length} web targets · ${Object.keys(groups).length} organisation(s).
+        Live status from active health checks (Shodanify-Healthcheck). CVE data from the imported Shodan export.</p>
+        ${body}</body></html>`;
+      const w = window.open('', '_blank');
+      if (w) { w.document.write(html); w.document.close(); }
     },
 
     clearFilters() {
@@ -1737,8 +1960,8 @@ function shodanify() {
         if (tok === 'expired') ok = !!h.ssl_expired;
         else if (tok === 'ssl' || tok === 'tls') ok = !!h.has_ssl;
         else if (tok === 'vuln' || tok === 'cve') ok = h.vulns_count > 0;
-        else if (tok === 'site' || tok === 'website') ok = !!h.is_site;
-        else if (tok === 'infra') ok = !h.is_site;
+        else if (tok === 'site' || tok === 'website') ok = this.siteInfo(h).is_site;
+        else if (tok === 'infra') ok = !this.siteInfo(h).is_site;
         else {
           const ci = tok.indexOf(':');
           if (ci > 0 && fields[tok.slice(0, ci)]) {

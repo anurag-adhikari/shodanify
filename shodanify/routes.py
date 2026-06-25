@@ -1,6 +1,7 @@
 """HTTP routes. The JSON contract is unchanged from the original app."""
 from flask import Blueprint, current_app, jsonify, render_template, request
 
+from .parsing import INFRA_DOMAINS
 from .scanner import scan_targets
 
 bp = Blueprint("main", __name__)
@@ -40,6 +41,12 @@ def api_stats():
 @bp.route("/api/duplicates")
 def api_duplicates():
     return jsonify(_store().duplicates())
+
+
+@bp.route("/api/infra-domains")
+def api_infra_domains():
+    """The default cloud/hosting domains used to classify infrastructure."""
+    return jsonify(sorted(INFRA_DOMAINS))
 
 
 @bp.route("/api/scans")
