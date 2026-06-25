@@ -169,6 +169,35 @@
       </template>
     </div>
 
+    <!-- ═══ GLOBAL FILTER BAR (cross-tab) ════════════════════════════════ -->
+    <template x-if="globalFilters.length">
+      <div class="flex flex-wrap items-center gap-2 mb-5 p-3 bg-orange-950/20 border border-orange-900/40 rounded-xl">
+        <span class="text-[11px] text-orange-300/90 font-semibold uppercase tracking-wider flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.879a1 1 0 00-.293-.707L3.293 7.007A1 1 0 013 6.3V4z"/>
+          </svg>
+          Filtering
+        </span>
+        <template x-for="(f,i) in globalFilters" :key="f.type+':'+f.value">
+          <button @click="removeFacet(i)"
+            class="group inline-flex items-center gap-1.5 pl-2 pr-1.5 py-1 bg-slate-800 border border-slate-600 rounded-full text-xs hover:border-orange-500 transition">
+            <span class="w-2 h-2 rounded-full flex-shrink-0" x-show="f.color" :style="f.color?`background:${f.color}`:''"></span>
+            <span class="text-slate-500 capitalize" x-text="f.type"></span>
+            <span class="text-slate-200 font-semibold" x-text="f.label"></span>
+            <span class="text-slate-500 group-hover:text-orange-400 font-bold">✕</span>
+          </button>
+        </template>
+        <span class="text-[11px] text-slate-500 ml-1">
+          <span class="text-orange-400 font-semibold" x-text="baseRecords.length"></span> of
+          <span x-text="records.length"></span> hosts match
+        </span>
+        <button @click="clearGlobal()"
+          class="ml-auto px-3 py-1 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition">
+          Clear all
+        </button>
+      </div>
+    </template>
+
     <!-- ═══════════════════════════════════════════════════════════════════ -->
     <!--  OVERVIEW TAB                                                       -->
     <!-- ═══════════════════════════════════════════════════════════════════ -->
@@ -180,7 +209,9 @@
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Top Ports / Services</h3>
           <div class="space-y-2.5">
             <template x-for="(item, i) in stats.top_ports" :key="item.port">
-              <div class="flex items-center gap-3">
+              <div class="flex items-center gap-3 cursor-pointer hover:opacity-80 rounded px-1 -mx-1"
+                :class="hasFacet('port',item.port)?'bg-slate-800':''"
+                @click="toggleFacet('port', item.port, ':'+item.port); view='hosts'">
                 <span class="w-14 text-right text-xs font-bold"
                   :class="item.port===443?'text-purple-400':item.port===80?'text-blue-400':item.port===22?'text-green-400':'text-slate-400'"
                   x-text="':'+item.port"></span>
@@ -200,7 +231,9 @@
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Top Countries</h3>
           <div class="space-y-2.5">
             <template x-for="(c, i) in stats.top_countries.slice(0,10)" :key="c.code">
-              <div class="flex items-center gap-3">
+              <div class="flex items-center gap-3 cursor-pointer hover:opacity-80 rounded px-1 -mx-1"
+                :class="hasFacet('country',c.code)?'bg-slate-800':''"
+                @click="toggleFacet('country', c.code, c.name); view='hosts'">
                 <span class="w-6 text-sm" x-text="flag(c.code)"></span>
                 <span class="flex-1 text-xs text-slate-300 truncate" x-text="c.name"></span>
                 <div class="w-20 bg-slate-800 rounded-full h-2 overflow-hidden">
@@ -218,7 +251,9 @@
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Top Organizations</h3>
           <div class="space-y-2.5">
             <template x-for="o in stats.top_orgs" :key="o.org">
-              <div class="flex items-center gap-3">
+              <div class="flex items-center gap-3 cursor-pointer hover:opacity-80 rounded px-1 -mx-1"
+                :class="hasFacet('org',o.org)?'bg-slate-800':''"
+                @click="toggleFacet('org', o.org, o.org); view='hosts'">
                 <span class="flex-1 text-xs text-slate-300 truncate" x-text="o.org"></span>
                 <div class="w-20 bg-slate-800 rounded-full h-2 overflow-hidden">
                   <div class="h-full bg-orange-500 rounded-full bar-fill"
@@ -236,7 +271,7 @@
           <div class="space-y-2">
             <template x-for="v in stats.vulns.slice(0,8)" :key="v.cve">
               <div class="flex items-start gap-3 p-2.5 rounded-lg bg-slate-800/50 hover:bg-slate-800 transition cursor-pointer"
-                @click="view='vulnerabilities'">
+                @click="toggleFacet('cve', v.cve, v.cve); view='vulnerabilities'">
                 <span class="tag-badge flex-shrink-0 mt-0.5" :class="severityBg(v.max_cvss)" x-text="severityLabel(v.max_cvss)"></span>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2">
@@ -260,7 +295,9 @@
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Technology Stack</h3>
           <div class="flex flex-wrap gap-1.5">
             <template x-for="t in stats.tech" :key="t.name">
-              <div class="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 rounded-full border border-slate-700 hover:border-slate-500 transition">
+              <div class="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 rounded-full border transition cursor-pointer hover:border-orange-500"
+                :class="hasFacet('tech',t.name)?'border-orange-500':'border-slate-700'"
+                @click="toggleFacet('tech', t.name, t.name); view='hosts'">
                 <span class="text-xs font-semibold text-slate-200" x-text="t.name"></span>
                 <span class="text-xs text-slate-500 bg-slate-700 rounded-full px-1.5 py-0.5 leading-none" x-text="t.count"></span>
               </div>
@@ -537,7 +574,7 @@
     <!-- ═══════════════════════════════════════════════════════════════════ -->
     <div x-show="view === 'technologies' && stats">
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-        <template x-for="t in stats.tech" :key="t.name">
+        <template x-for="t in filteredTech" :key="t.name">
           <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-600 transition">
             <div class="text-sm font-bold text-slate-200 truncate" x-text="t.name"></div>
             <div class="mt-1 flex flex-wrap gap-1">
@@ -558,8 +595,8 @@
             </div>
           </div>
         </template>
-        <template x-if="!stats.tech.length">
-          <div class="col-span-full text-center py-12 text-slate-500">No technology data found in records.</div>
+        <template x-if="!filteredTech.length">
+          <div class="col-span-full text-center py-12 text-slate-500">No technology data for the current filter.</div>
         </template>
       </div>
     </div>
@@ -629,7 +666,9 @@
             </svg>
             <div class="space-y-1.5 flex-1">
               <template x-for="s in an.sevDonut.segs" :key="s.label">
-                <div class="flex items-center gap-2 text-xs">
+                <div class="flex items-center gap-2 text-xs cursor-pointer rounded px-1 -mx-1 hover:bg-slate-800"
+                  :class="hasFacet('severity',s.label)?'bg-slate-800 ring-1 ring-orange-500/40':''"
+                  @click="toggleFacet('severity', s.label, s.label, s.color)">
                   <span class="w-2.5 h-2.5 rounded-sm flex-shrink-0" :style="`background:${s.color}`"></span>
                   <span class="capitalize text-slate-300 flex-1" x-text="s.label"></span>
                   <span class="text-slate-400 font-semibold" x-text="s.count"></span>
@@ -659,9 +698,11 @@
                   :class="row.port===443?'text-purple-400':row.port===80?'text-blue-400':row.port===22?'text-green-400':'text-slate-400'"
                   x-text="':'+row.port"></span>
                 <template x-for="cell in row.cells" :key="cell.sev">
-                  <div class="h-9 rounded flex items-center justify-center font-semibold border border-slate-800"
+                  <div class="h-9 rounded flex items-center justify-center font-semibold border transition"
                     :style="`background:${cell.bg}`"
-                    :class="cell.count? 'text-white' : 'text-slate-700'"
+                    :class="[cell.count? 'text-white cursor-pointer hover:brightness-125' : 'text-slate-700',
+                      (hasFacet('port',row.port)&&hasFacet('severity',cell.sev))? 'border-orange-400 ring-1 ring-orange-400/50' : 'border-slate-800']"
+                    @click="cell.count && addFacets([{type:'port',value:row.port,label:':'+row.port},{type:'severity',value:cell.sev,label:cell.sev,color:cell.color}])"
                     x-text="cell.count || '·'"></div>
                 </template>
               </div>
@@ -686,7 +727,9 @@
             </svg>
             <div class="space-y-1.5 flex-1">
               <template x-for="s in an.sslDonut.segs" :key="s.label">
-                <div class="flex items-center gap-2 text-xs">
+                <div class="flex items-center gap-2 text-xs cursor-pointer rounded px-1 -mx-1 hover:bg-slate-800"
+                  :class="hasFacet('ssl',s.label)?'bg-slate-800 ring-1 ring-orange-500/40':''"
+                  @click="toggleFacet('ssl', s.label, s.label==='none'?'No TLS':s.label, s.color)">
                   <span class="w-2.5 h-2.5 rounded-sm flex-shrink-0" :style="`background:${s.color}`"></span>
                   <span class="capitalize text-slate-300 flex-1" x-text="s.label==='none'?'No TLS':s.label"></span>
                   <span class="text-slate-400 font-semibold" x-text="s.count"></span>
@@ -704,7 +747,9 @@
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Host CVSS Distribution</h3>
           <div class="flex items-end justify-between gap-2 h-40">
             <template x-for="b in an.histogram" :key="b.label">
-              <div class="flex-1 flex flex-col items-center justify-end h-full gap-1">
+              <div class="flex-1 flex flex-col items-center justify-end h-full gap-1 cursor-pointer rounded hover:bg-slate-800/60"
+                :class="hasFacet('severity',b.sev)?'bg-slate-800/60 ring-1 ring-orange-500/40':''"
+                @click="toggleFacet('severity', b.sev, b.sev, b.color)">
                 <span class="text-xs font-bold text-slate-300" x-text="b.count"></span>
                 <div class="w-full rounded-t bar-fill" :style="`height:${Math.max(b.pct,2)}%;background:${b.color}`"></div>
                 <span class="text-[9px] text-slate-500 text-center leading-tight" x-text="b.label"></span>
@@ -718,7 +763,9 @@
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Most Exposed Organizations</h3>
           <div class="space-y-2.5">
             <template x-for="o in an.orgs" :key="o.label">
-              <div class="flex items-center gap-3">
+              <div class="flex items-center gap-3 cursor-pointer hover:opacity-80 rounded px-1 -mx-1"
+                :class="hasFacet('org',o.label)?'bg-slate-800':''"
+                @click="toggleFacet('org', o.label, o.label)">
                 <span class="flex-1 text-xs text-slate-300 truncate" x-text="o.label" :title="o.label"></span>
                 <div class="w-20 bg-slate-800 rounded-full h-2 overflow-hidden">
                   <div class="h-full bg-red-500 rounded-full bar-fill" :style="`width:${o.pct}%`"></div>
@@ -737,7 +784,9 @@
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Technology Adoption</h3>
           <div class="space-y-2.5">
             <template x-for="t in an.techBars" :key="t.label">
-              <div class="flex items-center gap-3">
+              <div class="flex items-center gap-3 cursor-pointer hover:opacity-80 rounded px-1 -mx-1"
+                :class="hasFacet('tech',t.label)?'bg-slate-800':''"
+                @click="toggleFacet('tech', t.label, t.label)">
                 <span class="flex-1 text-xs text-slate-300 truncate" x-text="t.label"></span>
                 <div class="w-20 bg-slate-800 rounded-full h-2 overflow-hidden">
                   <div class="h-full bg-orange-500 rounded-full bar-fill" :style="`width:${t.pct}%`"></div>
@@ -1271,7 +1320,7 @@ function shodanify() {
     records: [],
     stats: null,
     duplicates: null,
-    an: null,
+    globalFilters: [],
     loading: true,
     search: '',
     dupSearch: '',
@@ -1287,7 +1336,6 @@ function shodanify() {
 
     async init() {
       await Promise.all([this.fetchRecords(), this.fetchStats(), this.fetchDuplicates()]);
-      this.an = this.computeAnalytics();
       this.loading = false;
     },
 
@@ -1310,8 +1358,45 @@ function shodanify() {
       this.loading = true;
       await fetch('/api/reload', { method: 'POST' });
       await Promise.all([this.fetchRecords(), this.fetchStats(), this.fetchDuplicates()]);
-      this.an = this.computeAnalytics();
       this.loading = false;
+    },
+
+    // ── Global cross-tab facets ───────────────────────────────────────────
+    toggleFacet(type, value, label, color) {
+      const i = this.globalFilters.findIndex(f => f.type === type && f.value === value);
+      if (i >= 0) this.globalFilters.splice(i, 1);
+      else this.globalFilters.push({ type, value, label: label ?? String(value), color: color || null });
+    },
+    addFacets(list) {
+      for (const f of list)
+        if (!this.globalFilters.some(g => g.type === f.type && g.value === f.value)) this.globalFilters.push(f);
+    },
+    hasFacet(type, value) {
+      return this.globalFilters.some(f => f.type === type && f.value === value);
+    },
+    removeFacet(i) { this.globalFilters.splice(i, 1); },
+    clearGlobal() { this.globalFilters = []; },
+
+    facetMatch(h, type, v) {
+      switch (type) {
+        case 'severity': return this.sevName(h.max_cvss) === v;
+        case 'port': return h.port == v;
+        case 'country': return h.country_code === v;
+        case 'org': return (h.org || h.isp || 'Unknown') === v;
+        case 'tech': return (h.tech || []).includes(v);
+        case 'cve': return (h.cves || []).includes(v);
+        case 'ssl': return (h.has_ssl ? (h.ssl_expired ? 'expired' : 'valid') : 'none') === v;
+        default: return true;
+      }
+    },
+    matchFacets(h) {
+      const byType = {};
+      for (const f of this.globalFilters) (byType[f.type] = byType[f.type] || []).push(f.value);
+      // OR within a facet type, AND across types.
+      return Object.entries(byType).every(([type, vals]) => vals.some(v => this.facetMatch(h, type, v)));
+    },
+    get baseRecords() {
+      return this.globalFilters.length ? this.records.filter(h => this.matchFacets(h)) : this.records;
     },
 
     clearFilters() {
@@ -1405,7 +1490,7 @@ function shodanify() {
     },
 
     get filteredRecords() {
-      let r = this.records;
+      let r = this.baseRecords;
       if (this.search.trim()) r = r.filter(h => this.matchHost(h, this.search.trim()));
       if (this.filters.port) r = r.filter(h => h.port == this.filters.port);
       if (this.filters.country) r = r.filter(h => h.country_code === this.filters.country);
@@ -1422,9 +1507,31 @@ function shodanify() {
       });
     },
 
+    get filteredTech() {
+      if (!this.stats) return [];
+      if (!this.globalFilters.length) return this.stats.tech;
+      const cnt = {};
+      for (const r of this.baseRecords) for (const t of (r.tech || [])) cnt[t] = (cnt[t] || 0) + 1;
+      return this.stats.tech.filter(t => cnt[t.name])
+        .map(t => ({ ...t, count: cnt[t.name] }))
+        .sort((a, b) => b.count - a.count);
+    },
+
     get filteredVulns() {
       if (!this.stats) return [];
       let v = this.stats.vulns;
+      // Honour the global cross-tab facets: severity facets filter CVE
+      // severity directly; host-type facets restrict to CVEs seen on the
+      // matching hosts.
+      if (this.globalFilters.length) {
+        const sevVals = this.globalFilters.filter(f => f.type === 'severity').map(f => f.value);
+        if (this.globalFilters.some(f => f.type !== 'severity')) {
+          const set = new Set();
+          for (const h of this.baseRecords) for (const c of (h.cves || [])) set.add(c);
+          v = v.filter(x => set.has(x.cve));
+        }
+        if (sevVals.length) v = v.filter(x => sevVals.includes(x.severity));
+      }
       if (this.vulnSearch) {
         const q = this.vulnSearch.toLowerCase();
         v = v.filter(x => x.cve.toLowerCase().includes(q) || (x.summary || '').toLowerCase().includes(q));
@@ -1443,8 +1550,9 @@ function shodanify() {
         g.occurrences.some(o => (o.org || '').toLowerCase().includes(q)));
     },
 
-    computeAnalytics() {
-      const recs = this.records;
+    get an() { return this.computeAnalytics(this.baseRecords); },
+
+    computeAnalytics(recs) {
       const sevColor = { critical: '#ef4444', high: '#f97316', medium: '#eab308', low: '#3b82f6', none: '#64748b' };
       const rgba = (hex, a) => {
         const n = parseInt(hex.slice(1), 16);
@@ -1452,7 +1560,7 @@ function shodanify() {
       };
       const sevCounts = { critical: 0, high: 0, medium: 0, low: 0, none: 0 };
       let sslValid = 0, sslExpired = 0, sslNone = 0;
-      const portCnt = {}, portSev = {}, orgVuln = {}, dateCnt = {};
+      const portCnt = {}, portSev = {}, orgVuln = {}, dateCnt = {}, techCnt = {};
       const hist = { '0': 0, '0.1–3.9': 0, '4–6.9': 0, '7–8.9': 0, '9–10': 0 };
       const pts = []; let xMax = 1;
 
@@ -1467,6 +1575,7 @@ function shodanify() {
         const org = r.org || r.isp || 'Unknown';
         if (r.vulns_count > 0) orgVuln[org] = (orgVuln[org] || 0) + r.vulns_count;
         if (r.timestamp) { const d = r.timestamp.slice(0, 10); dateCnt[d] = (dateCnt[d] || 0) + 1; }
+        for (const t of (r.tech || [])) techCnt[t] = (techCnt[t] || 0) + 1;
         const c = r.max_cvss;
         if (c <= 0) hist['0']++; else if (c < 4) hist['0.1–3.9']++; else if (c < 7) hist['4–6.9']++;
         else if (c < 9) hist['7–8.9']++; else hist['9–10']++;
@@ -1491,7 +1600,7 @@ function shodanify() {
         port: p, total: portCnt[p],
         cells: ['critical', 'high', 'medium', 'low', 'none'].map(s => {
           const count = (portSev[p] || {})[s] || 0;
-          return { sev: s, count, bg: count ? rgba(sevColor[s], 0.18 + 0.82 * count / maxCell) : 'transparent' };
+          return { sev: s, count, color: sevColor[s], bg: count ? rgba(sevColor[s], 0.18 + 0.82 * count / maxCell) : 'transparent' };
         }),
       }));
 
@@ -1504,9 +1613,9 @@ function shodanify() {
       const orgMax = orgArr.length ? orgArr[0][1] : 1;
       const orgs = orgArr.map(([label, count]) => ({ label, count, pct: count / orgMax * 100 }));
 
-      const tech = (this.stats?.tech || []).slice(0, 12);
-      const techMax = tech.length ? tech[0].count : 1;
-      const techBars = tech.map(t => ({ label: t.name, count: t.count, pct: t.count / techMax * 100 }));
+      const techArr = Object.entries(techCnt).sort((a, b) => b[1] - a[1]).slice(0, 12);
+      const techMax = techArr.length ? techArr[0][1] : 1;
+      const techBars = techArr.map(([label, count]) => ({ label, count, pct: count / techMax * 100 }));
 
       const dates = Object.keys(dateCnt).sort();
       const dMax = Math.max(1, ...Object.values(dateCnt));
@@ -1514,8 +1623,9 @@ function shodanify() {
 
       const histOrder = ['0', '0.1–3.9', '4–6.9', '7–8.9', '9–10'];
       const histColors = { '0': '#64748b', '0.1–3.9': '#3b82f6', '4–6.9': '#eab308', '7–8.9': '#f97316', '9–10': '#ef4444' };
+      const histSev = { '0': 'none', '0.1–3.9': 'low', '4–6.9': 'medium', '7–8.9': 'high', '9–10': 'critical' };
       const hMax = Math.max(1, ...histOrder.map(k => hist[k]));
-      const histogram = histOrder.map(k => ({ label: k, count: hist[k], pct: hist[k] / hMax * 100, color: histColors[k] }));
+      const histogram = histOrder.map(k => ({ label: k, count: hist[k], pct: hist[k] / hMax * 100, color: histColors[k], sev: histSev[k] }));
 
       return {
         sevDonut: donut(sevCounts, ['critical', 'high', 'medium', 'low', 'none'], sevColor),
