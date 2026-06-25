@@ -170,7 +170,7 @@
     </div>
 
     <!-- ═══ GLOBAL FILTER BAR (cross-tab) ════════════════════════════════ -->
-    <template x-if="globalFilters.length">
+    <template x-if="anyFilterActive">
       <div class="flex flex-wrap items-center gap-2 mb-5 p-3 bg-orange-950/20 border border-orange-900/40 rounded-xl">
         <span class="text-[11px] text-orange-300/90 font-semibold uppercase tracking-wider flex items-center gap-1.5">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -187,11 +187,19 @@
             <span class="text-slate-500 group-hover:text-orange-400 font-bold">✕</span>
           </button>
         </template>
+        <template x-for="c in hostFilterChips" :key="c.key">
+          <button @click="clearHostFilter(c.key)"
+            class="group inline-flex items-center gap-1.5 pl-2 pr-1.5 py-1 bg-slate-800 border border-slate-600 rounded-full text-xs hover:border-orange-500 transition">
+            <span class="text-slate-500 capitalize" x-text="c.type"></span>
+            <span class="text-slate-200 font-semibold" x-text="c.label"></span>
+            <span class="text-slate-500 group-hover:text-orange-400 font-bold">✕</span>
+          </button>
+        </template>
         <span class="text-[11px] text-slate-500 ml-1">
           <span class="text-orange-400 font-semibold" x-text="baseRecords.length"></span> of
           <span x-text="records.length"></span> hosts match
         </span>
-        <button @click="clearGlobal()"
+        <button @click="clearAllFilters()"
           class="ml-auto px-3 py-1 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition">
           Clear all
         </button>
@@ -1686,8 +1694,36 @@ function shodanify() {
       // OR within a facet type, AND across types.
       return Object.entries(byType).every(([type, vals]) => vals.some(v => this.facetMatch(h, type, v)));
     },
+    // True when any Hosts-tab search box or filter control is set.
+    get hostFiltersActive() {
+      const f = this.filters;
+      return !!(this.search.trim() || f.port || f.country || f.severity ||
+        f.hasCVE || f.verifiedCVE || f.hasSSL || f.sslExpired);
+    },
+    // True when anything is narrowing the record set, from any tab.
+    get anyFilterActive() { return this.globalFilters.length > 0 || this.hostFiltersActive; },
+
+    _matchHostFilters(h) {
+      const f = this.filters;
+      if (this.search.trim() && !this.matchHost(h, this.search.trim())) return false;
+      if (f.port && h.port != f.port) return false;
+      if (f.country && h.country_code !== f.country) return false;
+      if (f.severity && this.sevName(h.max_cvss) !== f.severity) return false;
+      if (f.hasCVE && !(h.vulns_count > 0)) return false;
+      if (f.verifiedCVE && !(h.verified_cves > 0)) return false;
+      if (f.hasSSL && !h.has_ssl) return false;
+      if (f.sslExpired && !h.ssl_expired) return false;
+      return true;
+    },
+
+    // The single source of truth every tab filters from: applies both the
+    // cross-tab facets and the Hosts-tab search/filters, so a filter set on the
+    // Hosts tab narrows Vulnerabilities, Technologies, Analytics and Targets too.
     get baseRecords() {
-      return this.globalFilters.length ? this.records.filter(h => this.matchFacets(h)) : this.records;
+      let r = this.records;
+      if (this.globalFilters.length) r = r.filter(h => this.matchFacets(h));
+      if (this.hostFiltersActive) r = r.filter(h => this._matchHostFilters(h));
+      return r;
     },
 
     // ── Site classification (client-side so the infra list is editable) ───
@@ -2098,6 +2134,25 @@ function shodanify() {
       this.search = '';
     },
 
+    // Removable chips for the active Hosts-tab filters, shown in the cross-tab bar.
+    get hostFilterChips() {
+      const f = this.filters, out = [];
+      if (this.search.trim()) out.push({ key: 'search', type: 'search', label: this.search.trim() });
+      if (f.port) out.push({ key: 'port', type: 'port', label: f.port });
+      if (f.country) out.push({ key: 'country', type: 'country', label: f.country });
+      if (f.severity) out.push({ key: 'severity', type: 'severity', label: f.severity });
+      if (f.hasCVE) out.push({ key: 'hasCVE', type: 'filter', label: 'Has CVEs' });
+      if (f.verifiedCVE) out.push({ key: 'verifiedCVE', type: 'filter', label: 'Verified CVE' });
+      if (f.hasSSL) out.push({ key: 'hasSSL', type: 'filter', label: 'Has SSL' });
+      if (f.sslExpired) out.push({ key: 'sslExpired', type: 'filter', label: 'Expired cert' });
+      return out;
+    },
+    clearHostFilter(key) {
+      if (key === 'search') this.search = '';
+      else this.filters[key] = typeof this.filters[key] === 'boolean' ? false : '';
+    },
+    clearAllFilters() { this.clearGlobal(); this.clearFilters(); },
+
     async openHost(record) {
       this.selectedRecord = record;
       this.modalTab = 'info';
@@ -2185,17 +2240,9 @@ function shodanify() {
       });
     },
 
+    // baseRecords already carries the active search + filters; here we only sort.
     get filteredRecords() {
-      let r = this.baseRecords;
-      if (this.search.trim()) r = r.filter(h => this.matchHost(h, this.search.trim()));
-      if (this.filters.port) r = r.filter(h => h.port == this.filters.port);
-      if (this.filters.country) r = r.filter(h => h.country_code === this.filters.country);
-      if (this.filters.severity) r = r.filter(h => this.sevName(h.max_cvss) === this.filters.severity);
-      if (this.filters.hasCVE) r = r.filter(h => h.vulns_count > 0);
-      if (this.filters.verifiedCVE) r = r.filter(h => h.verified_cves > 0);
-      if (this.filters.hasSSL) r = r.filter(h => h.has_ssl);
-      if (this.filters.sslExpired) r = r.filter(h => h.ssl_expired);
-      return [...r].sort((a, b) => {
+      return [...this.baseRecords].sort((a, b) => {
         const av = a[this.sort.by] ?? '', bv = b[this.sort.by] ?? '';
         if (av < bv) return this.sort.dir === 'asc' ? -1 : 1;
         if (av > bv) return this.sort.dir === 'asc' ? 1 : -1;
@@ -2205,7 +2252,7 @@ function shodanify() {
 
     get filteredTech() {
       if (!this.stats) return [];
-      if (!this.globalFilters.length) return this.stats.tech;
+      if (!this.anyFilterActive) return this.stats.tech;
       const cnt = {};
       for (const r of this.baseRecords) for (const t of (r.tech || [])) cnt[t] = (cnt[t] || 0) + 1;
       return this.stats.tech.filter(t => cnt[t.name])
@@ -2216,16 +2263,14 @@ function shodanify() {
     get filteredVulns() {
       if (!this.stats) return [];
       let v = this.stats.vulns;
-      // Honour the global cross-tab facets: severity facets filter CVE
-      // severity directly; host-type facets restrict to CVEs seen on the
-      // matching hosts.
-      if (this.globalFilters.length) {
+      // Restrict to CVEs present on the currently-filtered hosts, then narrow
+      // by any active severity selection (cross-tab facet or Hosts-tab filter).
+      if (this.anyFilterActive) {
+        const set = new Set();
+        for (const h of this.baseRecords) for (const c of (h.cves || [])) set.add(c);
+        v = v.filter(x => set.has(x.cve));
         const sevVals = this.globalFilters.filter(f => f.type === 'severity').map(f => f.value);
-        if (this.globalFilters.some(f => f.type !== 'severity')) {
-          const set = new Set();
-          for (const h of this.baseRecords) for (const c of (h.cves || [])) set.add(c);
-          v = v.filter(x => set.has(x.cve));
-        }
+        if (this.filters.severity) sevVals.push(this.filters.severity);
         if (sevVals.length) v = v.filter(x => sevVals.includes(x.severity));
       }
       if (this.vulnSearch) {
