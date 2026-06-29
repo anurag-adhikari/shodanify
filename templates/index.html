@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Shodanify</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.14.8/dist/cdn.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
@@ -31,6 +32,18 @@
 <body class="bg-slate-950 text-slate-200 min-h-screen font-mono antialiased">
 
 <div x-data="shodanify()" x-init="init()" x-cloak>
+
+  <!-- Filter-busy spinner overlay -->
+  <div x-show="_busyFilter" x-transition.opacity style="display:none"
+    class="fixed inset-0 bg-slate-950/60 z-[200] flex items-center justify-center pointer-events-none">
+    <div class="bg-slate-800 border border-slate-700 rounded-xl px-6 py-4 flex items-center gap-3 shadow-2xl pointer-events-auto">
+      <svg class="w-5 h-5 text-orange-400 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+      </svg>
+      <span class="text-sm text-slate-200 font-medium">Applying filter…</span>
+    </div>
+  </div>
 
   <!-- ═══ HEADER ═══════════════════════════════════════════════════════════ -->
   <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40">
@@ -67,13 +80,49 @@
   </header>
 
   <!-- Loading state -->
-  <div x-show="loading" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur flex items-center justify-center">
-    <div class="flex flex-col items-center gap-3">
-      <svg class="w-8 h-8 text-orange-500 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-      </svg>
-      <span class="text-slate-400 text-sm">Loading Shodan data…</span>
+  <div x-show="loading" class="fixed inset-0 z-50 bg-slate-950 flex items-center justify-center">
+    <div class="w-[420px] max-w-full px-6">
+      <!-- Logo + title -->
+      <div class="flex items-center gap-3 mb-8">
+        <div class="w-9 h-9 rounded-xl bg-orange-500/20 border border-orange-500/40 flex items-center justify-center">
+          <svg class="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+          </svg>
+        </div>
+        <div>
+          <div class="text-lg font-bold text-slate-100">Shodanify</div>
+          <div class="text-xs text-slate-500">Shodan Export Viewer</div>
+        </div>
+      </div>
+      <!-- Step list -->
+      <div class="space-y-3">
+        <template x-for="step in loadingSteps" :key="step.id">
+          <div class="flex items-center gap-3">
+            <!-- Icon: spinning / check / dim circle -->
+            <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+              <template x-if="step.status === 'active'">
+                <svg class="w-4 h-4 text-orange-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"/>
+                  <path class="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+              </template>
+              <template x-if="step.status === 'done'">
+                <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+                </svg>
+              </template>
+              <template x-if="step.status === 'pending'">
+                <div class="w-3 h-3 rounded-full border border-slate-700"></div>
+              </template>
+            </div>
+            <span class="text-sm flex-1"
+              :class="step.status === 'done' ? 'text-slate-300' : step.status === 'active' ? 'text-slate-100' : 'text-slate-600'"
+              x-text="step.label"></span>
+            <span x-show="step.detail" x-text="step.detail"
+              class="text-xs text-slate-500 font-mono"></span>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
 
@@ -154,8 +203,8 @@
 
     <!-- ═══ TAB NAV ══════════════════════════════════════════════════════ -->
     <div class="flex items-center gap-1 mb-6 border-b border-slate-800 pb-0">
-      <template x-for="tab in ['overview','hosts','vulnerabilities','technologies','analytics','targets','duplicates']">
-        <button @click="view = tab"
+      <template x-for="tab in ['overview','hosts','vulnerabilities','technologies','analytics','graph','targets','duplicates']">
+        <button @click="view = tab; $nextTick(()=>$dispatch('tab-changed', tab))"
           class="px-4 py-2.5 text-sm font-semibold capitalize transition border-b-2 -mb-px flex items-center gap-1.5"
           :class="view === tab
             ? 'border-orange-500 text-orange-400'
@@ -196,8 +245,8 @@
           </button>
         </template>
         <span class="text-[11px] text-slate-500 ml-1">
-          <span class="text-orange-400 font-semibold" x-text="baseRecords.length"></span> of
-          <span x-text="records.length"></span> hosts match
+          <span class="text-orange-400 font-semibold" x-text="hostsData.filtered_total"></span> of
+          <span x-text="hostsData.total || (stats && stats.total_records) || 0"></span> hosts match
         </span>
         <button @click="clearAllFilters()"
           class="ml-auto px-3 py-1 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition">
@@ -274,35 +323,73 @@
         </div>
 
         <!-- Top Vulnerabilities -->
-        <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Top Vulnerabilities by CVSS</h3>
+        <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="{ vulnInsightMode: 'cvss' }">
+          <div class="flex items-center gap-3 mb-4 flex-wrap">
+            <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold flex-1">Top Vulnerabilities</h3>
+            <div class="inline-flex rounded-lg border border-slate-700 bg-slate-950 p-0.5 text-[10px]">
+              <template x-for="m in [{k:'cvss',l:'By CVSS'},{k:'spread',l:'Widest Spread'},{k:'epss',l:'By EPSS'},{k:'verified',l:'Verified'}]" :key="m.k">
+                <button @click="vulnInsightMode = m.k"
+                  class="px-2.5 py-1 rounded-md font-semibold transition"
+                  :class="vulnInsightMode===m.k?'bg-orange-500/90 text-white':'text-slate-400 hover:text-slate-200'"
+                  x-text="m.l"></button>
+              </template>
+            </div>
+          </div>
           <div class="space-y-2">
-            <template x-for="v in stats.vulns.slice(0,8)" :key="v.cve">
+            <template x-for="v in (()=>{
+              let src = [...stats.vulns];
+              if (vulnInsightMode==='spread') src.sort((a,b)=>b.host_count-a.host_count);
+              else if (vulnInsightMode==='epss') src.sort((a,b)=>(b.epss||0)-(a.epss||0));
+              else if (vulnInsightMode==='verified') src=src.filter(v=>v.verified);
+              return src.slice(0,8);
+            })()" :key="v.cve">
               <div class="flex items-start gap-3 p-2.5 rounded-lg bg-slate-800/50 hover:bg-slate-800 transition cursor-pointer"
                 @click="toggleFacet('cve', v.cve, v.cve); view='vulnerabilities'">
                 <span class="tag-badge flex-shrink-0 mt-0.5" :class="severityBg(v.max_cvss)" x-text="severityLabel(v.max_cvss)"></span>
                 <div class="min-w-0 flex-1">
-                  <div class="flex items-center gap-2">
+                  <div class="flex items-center gap-2 flex-wrap">
                     <span class="text-xs font-bold text-slate-200" x-text="v.cve"></span>
-                    <span class="text-xs font-bold" :class="severityColor(v.max_cvss)" x-text="v.max_cvss.toFixed(1)"></span>
+                    <span class="text-xs font-bold" :class="severityColor(v.max_cvss)" x-text="'CVSS '+v.max_cvss.toFixed(1)"></span>
                     <template x-if="v.verified">
-                      <span class="tag-badge bg-green-950 text-green-400 border border-green-800">Verified</span>
+                      <span class="tag-badge bg-green-950 text-green-400 border border-green-800">✓ Verified</span>
                     </template>
-                    <span class="tag-badge bg-slate-700 text-slate-400 border border-slate-600"
-                      x-text="v.host_count + (v.host_count===1?' host':' hosts')"></span>
+                    <span class="tag-badge bg-slate-700 text-slate-400 border border-slate-600 flex items-center gap-1">
+                      <svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"/></svg>
+                      <span x-text="v.host_count + (v.host_count===1?' host':' hosts')"></span>
+                    </span>
+                    <template x-if="v.epss != null && v.epss > 0">
+                      <span class="tag-badge bg-purple-950 text-purple-300 border border-purple-800"
+                        :title="'EPSS: probability of exploitation in 30 days'"
+                        x-text="'EPSS '+(v.epss*100).toFixed(1)+'%'"></span>
+                    </template>
                   </div>
-                  <p class="text-xs text-slate-500 mt-0.5 truncate" x-text="v.summary"></p>
+                  <div class="flex items-center gap-3 mt-1">
+                    <p class="text-xs text-slate-500 truncate flex-1" x-text="v.summary"></p>
+                    <!-- Spread bar -->
+                    <div class="flex items-center gap-1 flex-shrink-0" x-show="stats.vulns[0]">
+                      <div class="w-16 bg-slate-700 rounded-full h-1 overflow-hidden">
+                        <div class="h-full rounded-full" :class="severityColor(v.max_cvss).replace('text-','bg-')"
+                          :style="`width:${Math.round(v.host_count/stats.vulns.reduce((m,x)=>Math.max(m,x.host_count),1)*100)}%`"></div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
+            </template>
+            <template x-if="vulnInsightMode==='verified' && stats.vulns.filter(v=>v.verified).length===0">
+              <div class="text-center py-6 text-slate-600 text-xs">No verified CVEs in current filter.</div>
             </template>
           </div>
         </div>
 
         <!-- Technology Breakdown -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Technology Stack</h3>
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="{ techExpanded: false }">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold">Technology Stack</h3>
+            <span class="text-[10px] text-slate-600" x-text="stats.tech.length + ' technologies'"></span>
+          </div>
           <div class="flex flex-wrap gap-1.5">
-            <template x-for="t in stats.tech" :key="t.name">
+            <template x-for="t in (techExpanded ? stats.tech : stats.tech.slice(0,12))" :key="t.name">
               <div class="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 rounded-full border transition cursor-pointer hover:border-orange-500"
                 :class="hasFacet('tech',t.name)?'border-orange-500':'border-slate-700'"
                 @click="toggleFacet('tech', t.name, t.name); view='hosts'">
@@ -311,6 +398,12 @@
               </div>
             </template>
           </div>
+          <template x-if="stats.tech.length > 12">
+            <button @click="techExpanded = !techExpanded"
+              class="mt-3 text-xs text-slate-500 hover:text-orange-400 transition flex items-center gap-1">
+              <span x-text="techExpanded ? '↑ Show less' : '↓ See ' + (stats.tech.length - 12) + ' more…'"></span>
+            </button>
+          </template>
         </div>
 
       </div>
@@ -327,27 +420,27 @@
             <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
             </svg>
-            <input type="text" x-model="search" @keydown.escape="search=''"
+            <input type="text" x-model="_rawSearch" @input.debounce.300ms="search = _rawSearch; hostsPage = 0" @keydown.escape="_rawSearch=''; search=''; hostsPage=0"
               placeholder="Search… try  org:amazon  port:443  cve:2021  tech:nginx  -expired  (combine freely)"
               class="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-9 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30">
-            <button x-show="search" @click="search=''"
+            <button x-show="_rawSearch" @click="_rawSearch=''; search=''; hostsPage=0"
               class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">✕</button>
           </div>
-          <select x-model="filters.port"
+          <select x-model="filters.port" @change="hostsPage = 0"
             class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-orange-500">
             <option value="">All Ports</option>
             <template x-for="p in portOptions" :key="p.port">
               <option :value="p.port" x-text="':'+p.port+' ('+p.count+')'"></option>
             </template>
           </select>
-          <select x-model="filters.country"
+          <select x-model="filters.country" @change="hostsPage = 0"
             class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-orange-500 max-w-44">
             <option value="">All Countries</option>
             <template x-for="c in countryOptions" :key="c.code">
               <option :value="c.code" x-text="flag(c.code)+' '+c.name+' ('+c.count+')'"></option>
             </template>
           </select>
-          <select x-model="filters.severity"
+          <select x-model="filters.severity" @change="hostsPage = 0"
             class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-orange-500">
             <option value="">Any Severity</option>
             <option value="critical">🔴 Critical</option>
@@ -359,24 +452,24 @@
         </div>
         <div class="flex flex-wrap gap-2 items-center">
           <label class="flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg cursor-pointer text-xs text-slate-300">
-            <input type="checkbox" x-model="filters.hasCVE" class="accent-orange-500 rounded"> Has CVEs
+            <input type="checkbox" x-model="filters.hasCVE" @change="hostsPage = 0" class="accent-orange-500 rounded"> Has CVEs
           </label>
           <label class="flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg cursor-pointer text-xs text-slate-300">
-            <input type="checkbox" x-model="filters.verifiedCVE" class="accent-green-500 rounded"> Verified CVE
+            <input type="checkbox" x-model="filters.verifiedCVE" @change="hostsPage = 0" class="accent-green-500 rounded"> Verified CVE
           </label>
           <label class="flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg cursor-pointer text-xs text-slate-300">
-            <input type="checkbox" x-model="filters.hasSSL" class="accent-orange-500 rounded"> Has SSL
+            <input type="checkbox" x-model="filters.hasSSL" @change="hostsPage = 0" class="accent-orange-500 rounded"> Has SSL
           </label>
           <label class="flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg cursor-pointer text-xs text-slate-300">
-            <input type="checkbox" x-model="filters.sslExpired" class="accent-red-500 rounded"> Expired Cert
+            <input type="checkbox" x-model="filters.sslExpired" @change="hostsPage = 0" class="accent-red-500 rounded"> Expired Cert
           </label>
           <button @click="clearFilters()"
             class="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 bg-slate-900 border border-slate-700 rounded-lg transition">
             Clear all
           </button>
           <span class="ml-auto flex items-center px-3 py-1.5 text-xs text-slate-500">
-            <span class="text-orange-400 font-semibold mr-1" x-text="filteredRecords.length"></span>
-            of <span class="text-slate-400 mx-1" x-text="records.length"></span> hosts
+            <span class="text-orange-400 font-semibold mr-1" x-text="hostsData.filtered_total"></span>
+            of <span class="text-slate-400 mx-1" x-text="hostsData.total || (stats && stats.total_records) || 0"></span> hosts
           </span>
         </div>
       </div>
@@ -410,7 +503,7 @@
               </tr>
             </thead>
             <tbody>
-              <template x-for="r in filteredRecords" :key="r.ip_str+':'+r.port">
+              <template x-for="r in pagedRecords" :key="r.ip_str+':'+r.port">
                 <tr class="border-b border-slate-800/50 row-hover transition" @click="openHost(r)">
                   <!-- IP -->
                   <td class="px-4 py-3 font-mono font-semibold text-orange-400" x-text="r.ip_str"></td>
@@ -483,7 +576,12 @@
                   <td class="px-3 py-3 text-slate-500 whitespace-nowrap" x-text="formatDateShort(r.timestamp)"></td>
                 </tr>
               </template>
-              <template x-if="filteredRecords.length === 0">
+              <template x-if="hostsData.loading">
+                <tr>
+                  <td colspan="8" class="text-center py-12 text-slate-500">Loading…</td>
+                </tr>
+              </template>
+              <template x-if="!hostsData.loading && hostsData.filtered_total === 0">
                 <tr>
                   <td colspan="8" class="text-center py-12 text-slate-500">No records match your filters.</td>
                 </tr>
@@ -492,12 +590,45 @@
           </table>
         </div>
       </div>
+
+      <!-- Pagination controls -->
+      <div x-show="hostsTotalPages > 1" class="flex items-center justify-between mt-3">
+        <div class="text-xs text-slate-500">
+          Page <span class="text-slate-300" x-text="hostsPage + 1"></span> of <span class="text-slate-300" x-text="hostsTotalPages"></span>
+          &nbsp;·&nbsp;
+          Showing <span class="text-slate-300" x-text="hostsPage * perPage + 1"></span>–<span class="text-slate-300" x-text="Math.min((hostsPage + 1) * perPage, hostsData.filtered_total)"></span>
+          of <span class="text-slate-300" x-text="hostsData.filtered_total"></span>
+        </div>
+        <div class="flex items-center gap-1">
+          <button @click="hostsPage = 0" :disabled="hostsPage === 0"
+            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">«</button>
+          <button @click="hostsPage--" :disabled="hostsPage === 0"
+            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">‹</button>
+          <template x-for="p in Array.from({length: hostsTotalPages}, (_, i) => i).filter(i => Math.abs(i - hostsPage) <= 2)" :key="p">
+            <button @click="hostsPage = p"
+              :class="p === hostsPage ? 'bg-orange-500 text-white border-orange-500' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'"
+              class="px-2.5 py-1 text-xs rounded border" x-text="p + 1"></button>
+          </template>
+          <button @click="hostsPage++" :disabled="hostsPage >= hostsTotalPages - 1"
+            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">›</button>
+          <button @click="hostsPage = hostsTotalPages - 1" :disabled="hostsPage >= hostsTotalPages - 1"
+            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">»</button>
+          <select x-model.number="perPage" @change="hostsPage = 0; savePerPage()"
+            class="ml-3 px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400">
+            <option value="10">10 / page</option>
+            <option value="25">25 / page</option>
+            <option value="50">50 / page</option>
+            <option value="100">100 / page</option>
+            <option value="200">200 / page</option>
+          </select>
+        </div>
+      </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════════════ -->
     <!--  VULNERABILITIES TAB                                                -->
     <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <div x-show="view === 'vulnerabilities' && stats">
+    <template x-if="view === 'vulnerabilities' && stats"><div>
       <div class="flex gap-3 mb-4 flex-wrap items-center">
         <div class="relative flex-1 min-w-60">
           <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -532,7 +663,7 @@
       </div>
 
       <div class="space-y-2">
-        <template x-for="v in filteredVulns" :key="v.cve">
+        <template x-for="v in pagedVulns" :key="v.cve">
           <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
             <div class="p-4 flex items-start gap-4 cursor-pointer" @click="v._open = !v._open">
               <span class="tag-badge flex-shrink-0 mt-0.5" :class="severityBg(v.max_cvss)" x-text="severityLabel(v.max_cvss)"></span>
@@ -549,6 +680,13 @@
                   </template>
                   <span class="tag-badge bg-slate-800 text-slate-400 border border-slate-700"
                     x-text="v.host_count + (v.host_count===1?' host':' hosts')"></span>
+                  <!-- Filter button — cross-filters all tabs by this CVE -->
+                  <button @click.stop="toggleFacet('cve', v.cve, v.cve)"
+                    :class="hasFacet('cve', v.cve) ? 'bg-orange-500/20 border-orange-500 text-orange-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-orange-500 hover:text-orange-300'"
+                    class="tag-badge border transition"
+                    :title="hasFacet('cve', v.cve) ? 'Remove CVE filter' : 'Filter all tabs by this CVE'">
+                    <span x-text="hasFacet('cve', v.cve) ? '✕ ' + v.cve : '⊕ Filter'"></span>
+                  </button>
                 </div>
                 <p class="text-xs text-slate-400 line-clamp-2" x-text="v.summary || 'No description available.'"></p>
               </div>
@@ -562,7 +700,21 @@
                 <p class="text-xs text-slate-300 leading-relaxed" x-text="v.summary"></p>
               </div>
               <div>
-                <div class="text-[10px] uppercase text-slate-500 font-semibold mb-1">Affected Hosts</div>
+                <div class="flex items-center justify-between mb-1">
+                  <div class="text-[10px] uppercase text-slate-500 font-semibold">
+                    Affected Hosts
+                    <span x-show="v.host_count > v.hosts.length"
+                      class="ml-1 text-orange-400"
+                      x-text="'(showing ' + v.hosts.length + ' of ' + v.host_count + ')'"></span>
+                  </div>
+                  <button x-show="!hasFacet('cve', v.cve)"
+                    @click.stop="toggleFacet('cve', v.cve, v.cve)"
+                    class="text-[10px] text-orange-400 hover:text-orange-300 flex items-center gap-1 transition">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z"/></svg>
+                    Filter all tabs by this CVE
+                  </button>
+                  <span x-show="hasFacet('cve', v.cve)" class="text-[10px] text-orange-400">✓ Active filter</span>
+                </div>
                 <div class="flex flex-wrap gap-1.5">
                   <template x-for="h in v.hosts" :key="h.ip+':'+h.port">
                     <button @click.stop="openHostByIp(h.ip, h.port)"
@@ -573,6 +725,11 @@
                       </template>
                     </button>
                   </template>
+                  <template x-if="v.host_count > v.hosts.length">
+                    <div class="flex items-center px-2.5 py-1.5 bg-slate-800/50 border border-dashed border-slate-700 rounded-lg text-[11px] text-slate-500">
+                      +<span x-text="v.host_count - v.hosts.length"></span> more — use filter to see all
+                    </div>
+                  </template>
                 </div>
               </div>
             </div>
@@ -582,14 +739,34 @@
           <div class="text-center py-12 text-slate-500">No vulnerabilities match your filters.</div>
         </template>
       </div>
-    </div>
+      <div x-show="vulnsTotalPages > 1" class="flex items-center justify-between mt-3">
+        <div class="text-xs text-slate-500">
+          Page <span class="text-slate-300" x-text="vulnsPage + 1"></span> of <span class="text-slate-300" x-text="vulnsTotalPages"></span>
+          &nbsp;·&nbsp;
+          Showing <span class="text-slate-300" x-text="vulnsPage * perPage + 1"></span>–<span class="text-slate-300" x-text="Math.min((vulnsPage + 1) * perPage, filteredVulns.length)"></span>
+          of <span class="text-slate-300" x-text="filteredVulns.length"></span>
+        </div>
+        <div class="flex items-center gap-1">
+          <button @click="vulnsPage = 0" :disabled="vulnsPage === 0" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">«</button>
+          <button @click="vulnsPage--" :disabled="vulnsPage === 0" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">‹</button>
+          <template x-for="p in Array.from({length: vulnsTotalPages}, (_, i) => i).filter(i => Math.abs(i - vulnsPage) <= 2)" :key="p">
+            <button @click="vulnsPage = p" :class="p === vulnsPage ? 'bg-orange-500 text-white border-orange-500' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'" class="px-2.5 py-1 text-xs rounded border" x-text="p + 1"></button>
+          </template>
+          <button @click="vulnsPage++" :disabled="vulnsPage >= vulnsTotalPages - 1" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">›</button>
+          <button @click="vulnsPage = vulnsTotalPages - 1" :disabled="vulnsPage >= vulnsTotalPages - 1" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">»</button>
+          <select x-model.number="perPage" @change="vulnsPage = 0; savePerPage()" class="ml-3 px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400">
+            <option value="10">10 / page</option><option value="25">25 / page</option><option value="50">50 / page</option><option value="100">100 / page</option>
+          </select>
+        </div>
+      </div>
+    </div></template>
 
     <!-- ═══════════════════════════════════════════════════════════════════ -->
     <!--  TECHNOLOGIES TAB                                                   -->
     <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <div x-show="view === 'technologies' && stats">
+    <template x-if="view === 'technologies' && stats"><div>
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-        <template x-for="t in filteredTech" :key="t.name">
+        <template x-for="t in pagedTech" :key="t.name">
           <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-600 transition">
             <div class="text-sm font-bold text-slate-200 truncate" x-text="t.name"></div>
             <div class="mt-1 flex flex-wrap gap-1">
@@ -614,51 +791,77 @@
           <div class="col-span-full text-center py-12 text-slate-500">No technology data for the current filter.</div>
         </template>
       </div>
-    </div>
+      <div x-show="techTotalPages > 1" class="flex items-center justify-between mt-3">
+        <div class="text-xs text-slate-500">
+          Page <span class="text-slate-300" x-text="techPage + 1"></span> of <span class="text-slate-300" x-text="techTotalPages"></span>
+          &nbsp;·&nbsp;
+          Showing <span class="text-slate-300" x-text="techPage * perPage + 1"></span>–<span class="text-slate-300" x-text="Math.min((techPage + 1) * perPage, filteredTech.length)"></span>
+          of <span class="text-slate-300" x-text="filteredTech.length"></span>
+        </div>
+        <div class="flex items-center gap-1">
+          <button @click="techPage = 0" :disabled="techPage === 0" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">«</button>
+          <button @click="techPage--" :disabled="techPage === 0" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">‹</button>
+          <template x-for="p in Array.from({length: techTotalPages}, (_, i) => i).filter(i => Math.abs(i - techPage) <= 2)" :key="p">
+            <button @click="techPage = p" :class="p === techPage ? 'bg-orange-500 text-white border-orange-500' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'" class="px-2.5 py-1 text-xs rounded border" x-text="p + 1"></button>
+          </template>
+          <button @click="techPage++" :disabled="techPage >= techTotalPages - 1" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">›</button>
+          <button @click="techPage = techTotalPages - 1" :disabled="techPage >= techTotalPages - 1" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">»</button>
+          <select x-model.number="perPage" @change="techPage = 0; savePerPage()" class="ml-3 px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400">
+            <option value="10">10 / page</option><option value="25">25 / page</option><option value="50">50 / page</option><option value="100">100 / page</option>
+          </select>
+        </div>
+      </div>
+    </div></template>
 
     <!-- ═══════════════════════════════════════════════════════════════════ -->
     <!--  ANALYTICS TAB                                                       -->
     <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <div x-show="view === 'analytics' && an" class="space-y-4">
+    <template x-if="view === 'analytics'"><div class="space-y-4">
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <!-- Risk landscape scatter -->
+        <!-- Risk landscape — sorted CVSS line chart -->
         <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5">
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-1">Risk Landscape</h3>
-          <p class="text-[11px] text-slate-600 mb-3">Each dot is a host — CVE count vs. peak CVSS. Top-right = most exposed.</p>
+          <p class="text-[11px] text-slate-600 mb-3">Hosts ranked by peak CVSS — left = safe, right = most exposed. Fill shows CVE count depth.</p>
           <div class="flex">
-            <!-- y-axis labels -->
-            <div class="flex flex-col justify-between text-[9px] text-slate-600 pr-2 py-1 text-right w-6" style="height:260px">
-              <span>10</span><span>9</span><span>7</span><span>4</span><span>0</span>
+            <div class="flex flex-col justify-between text-[9px] text-slate-600 pr-2 py-1 text-right w-6" style="height:220px">
+              <span>10</span><span>7</span><span>4</span><span>0</span>
             </div>
             <div class="flex-1">
-              <!-- plot area -->
-              <div class="relative w-full border-l border-b border-slate-700" style="height:260px">
-                <!-- severity threshold bands -->
-                <div class="absolute inset-x-0 top-0 bg-red-500/5" style="height:10%"></div>
-                <div class="absolute inset-x-0 bg-orange-500/5" style="top:10%;height:20%"></div>
-                <div class="absolute inset-x-0 bg-yellow-500/5" style="top:30%;height:30%"></div>
-                <div class="absolute inset-x-0 bg-blue-500/5" style="top:60%;height:40%"></div>
-                <!-- gridlines at CVSS 9 / 7 / 4 -->
-                <div class="absolute inset-x-0 border-t border-slate-800" style="top:10%"></div>
-                <div class="absolute inset-x-0 border-t border-slate-800" style="top:30%"></div>
-                <div class="absolute inset-x-0 border-t border-slate-800" style="top:60%"></div>
-                <!-- dots -->
-                <template x-for="(p,i) in an.scatter" :key="i">
-                  <div class="absolute w-2.5 h-2.5 -ml-1.5 -mb-1.5 rounded-full ring-1 ring-slate-950/60 cursor-pointer hover:scale-150 hover:z-10 transition-transform"
-                    :style="`left:${p.lpct}%;bottom:${p.bpct}%;background:${p.color};opacity:0.8`"
-                    @click="openHostByIp(p.ip, p.port)"
-                    :title="`${p.ip}:${p.port} — ${p.count} CVE(s), CVSS ${p.cvss.toFixed(1)}`"></div>
-                </template>
-                <template x-if="an.scatter.length===0">
-                  <div class="absolute inset-0 flex items-center justify-center text-slate-600 text-xs">No hosts with CVEs</div>
-                </template>
-              </div>
-              <!-- x-axis labels -->
+              <svg class="w-full" style="height:220px" x-data x-init="
+                $nextTick(() => {
+                  const el = $el;
+                  const pts = [...an.scatter].sort((a,b)=>a.cvss-b.cvss);
+                  if(!pts.length) return;
+                  const W = el.clientWidth || 600, H = 220;
+                  const xScale = i => (i/(pts.length-1||1))*W;
+                  const yScale = v => H - (v/10)*H;
+                  const line = pts.map((p,i)=>`${i===0?'M':'L'}${xScale(i).toFixed(1)},${yScale(p.cvss).toFixed(1)}`).join(' ');
+                  const area = `${line} L${W},${H} L0,${H} Z`;
+                  el.innerHTML = `
+                    <defs>
+                      <linearGradient id='riskGrad' x1='0' y1='0' x2='0' y2='1'>
+                        <stop offset='0%' stop-color='#f87171' stop-opacity='0.4'/>
+                        <stop offset='60%' stop-color='#fb923c' stop-opacity='0.15'/>
+                        <stop offset='100%' stop-color='transparent' stop-opacity='0'/>
+                      </linearGradient>
+                    </defs>
+                    <line x1='0' y1='${yScale(9)}' x2='${W}' y2='${yScale(9)}' stroke='#ef444420' stroke-width='1' stroke-dasharray='4,4'/>
+                    <line x1='0' y1='${yScale(7)}' x2='${W}' y2='${yScale(7)}' stroke='#f9731620' stroke-width='1' stroke-dasharray='4,4'/>
+                    <line x1='0' y1='${yScale(4)}' x2='${W}' y2='${yScale(4)}' stroke='#eab30820' stroke-width='1' stroke-dasharray='4,4'/>
+                    <text x='4' y='${yScale(9)-3}' fill='#ef444440' font-size='8'>9 Critical</text>
+                    <text x='4' y='${yScale(7)-3}' fill='#f9731640' font-size='8'>7 High</text>
+                    <text x='4' y='${yScale(4)-3}' fill='#eab30840' font-size='8'>4 Medium</text>
+                    <path d='${area}' fill='url(#riskGrad)'/>
+                    <path d='${line}' fill='none' stroke='#f87171' stroke-width='1.5' stroke-linejoin='round'/>
+                  `;
+                })
+              " viewBox="0 0 600 220" preserveAspectRatio="none">
+              </svg>
               <div class="flex justify-between text-[9px] text-slate-600 mt-1">
-                <span>0</span>
-                <span>CVE count per host →</span>
-                <span x-text="an.scatterXMax"></span>
+                <span>← Safest hosts</span>
+                <span x-text="an.scatter.length + ' hosts with CVEs'"></span>
+                <span>Most exposed →</span>
               </div>
             </div>
           </div>
@@ -833,6 +1036,150 @@
           <span x-text="an.timeline[an.timeline.length-1]?.date"></span>
         </div>
       </div>
+    </div></template>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!--  NETWORK GRAPH TAB                                                   -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div x-show="view === 'graph'" x-data="networkGraph()" x-init="$watch('$store', ()=>{}); $nextTick(()=>{ if(view==='graph') initGraph(); })" @tab-changed.window="if($event.detail==='graph') initGraph()">
+      <!-- Controls -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4">
+        <div class="flex flex-wrap gap-3 items-end">
+          <div>
+            <label class="block text-[10px] text-slate-500 uppercase tracking-wide mb-1">Group hubs by</label>
+            <select x-model="gf.groupBy" @change="renderGraph()"
+              class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-orange-500">
+              <option value="org">Organization</option>
+              <option value="subnet">Subnet (/24)</option>
+              <option value="country">Country</option>
+              <option value="cve">Top CVEs</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[10px] text-slate-500 uppercase tracking-wide mb-1">Host color</label>
+            <select x-model="gf.leafColor" @change="renderGraph()"
+              class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-orange-500">
+              <option value="severity">Risk severity</option>
+              <option value="group">Group color</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[10px] text-slate-500 uppercase tracking-wide mb-1">Min CVSS</label>
+            <select x-model.number="gf.minCvss" @change="renderGraph()"
+              class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-orange-500">
+              <option value="0">Any</option>
+              <option value="4">4+ Medium</option>
+              <option value="7">7+ High</option>
+              <option value="9">9+ Critical</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[10px] text-slate-500 uppercase tracking-wide mb-1">CVE filter</label>
+            <input type="text" x-model="gf.cveFilter" @input.debounce.400ms="renderGraph()" placeholder="e.g. CVE-2021-44228"
+              class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-orange-500 w-44">
+          </div>
+          <div>
+            <label class="block text-[10px] text-slate-500 uppercase tracking-wide mb-1">Org / group search</label>
+            <input type="text" x-model="gf.orgFilter" @input.debounce.400ms="renderGraph()" placeholder="Filter by name"
+              class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-orange-500 w-36">
+          </div>
+          <div>
+            <label class="block text-[10px] text-slate-500 uppercase tracking-wide mb-1">Max hosts</label>
+            <select x-model.number="gf.maxHosts" @change="renderGraph()"
+              class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-orange-500">
+              <option value="150">150</option>
+              <option value="300">300</option>
+              <option value="600">600</option>
+              <option value="1000">1000</option>
+            </select>
+          </div>
+          <div class="flex items-end gap-2">
+            <label class="flex items-center gap-1.5 cursor-pointer select-none pb-1.5">
+              <input type="checkbox" x-model="gf.showLabels" @change="$nextTick(()=>_draw())"
+                class="accent-orange-500 w-3.5 h-3.5">
+              <span class="text-xs text-slate-400">Labels</span>
+            </label>
+          </div>
+          <button @click="gf={groupBy:'org',leafColor:'severity',minCvss:0,cveFilter:'',orgFilter:'',maxHosts:300,showLabels:true}; renderGraph()"
+            class="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 bg-slate-950 border border-slate-700 rounded-lg transition">Reset</button>
+          <div class="ml-auto text-xs text-slate-500 text-right">
+            <span class="text-slate-300 font-semibold" x-text="graphHubCount"></span> hubs
+            <span class="text-slate-600"> · </span>
+            <span class="text-slate-300 font-semibold" x-text="graphNodeCount"></span> hosts
+            <span class="text-slate-600"> · </span>
+            <span class="text-slate-300 font-semibold" x-text="graphEdgeCount"></span> edges
+          </div>
+        </div>
+      </div>
+
+      <!-- Legend -->
+      <div class="space-y-1.5 mb-3">
+        <!-- Hub legend -->
+        <div class="flex flex-wrap gap-x-4 gap-y-1 items-center">
+          <span class="text-[10px] uppercase text-slate-600 tracking-wide flex-shrink-0">Groups</span>
+          <template x-for="s in _colorLegend" :key="s.label">
+            <span class="flex items-center gap-1.5 text-[10px] text-slate-400">
+              <span class="w-3 h-3 rounded-full inline-block flex-shrink-0 border" :style="`background:${s.color}22; border-color:${s.color}`"></span>
+              <span class="max-w-[130px] truncate" x-text="s.label"></span>
+              <span class="text-slate-600" x-text="'('+s.count+')'"></span>
+            </span>
+          </template>
+        </div>
+        <!-- Severity legend (only when coloring by severity) -->
+        <template x-if="gf.leafColor === 'severity'">
+          <div class="flex flex-wrap gap-x-4 gap-y-1 items-center">
+            <span class="text-[10px] uppercase text-slate-600 tracking-wide flex-shrink-0">Host risk</span>
+            <template x-for="s in [{c:'#ef4444',l:'Critical ≥9'},{c:'#f97316',l:'High ≥7'},{c:'#eab308',l:'Medium ≥4'},{c:'#60a5fa',l:'Low'},{c:'#475569',l:'None'}]" :key="s.l">
+              <span class="flex items-center gap-1.5 text-[10px] text-slate-400">
+                <span class="w-2.5 h-2.5 rounded-full inline-block flex-shrink-0" :style="`background:${s.c}`"></span>
+                <span x-text="s.l"></span>
+              </span>
+            </template>
+          </div>
+        </template>
+        <div class="text-[10px] text-slate-600">Hub size = host count · Host size = CVE count · Click host to open · Scroll or +/− to zoom</div>
+      </div>
+
+      <!-- Canvas -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden relative" style="height:640px">
+        <canvas id="graph-canvas" class="w-full h-full" style="cursor:grab"></canvas>
+        <div x-show="graphLoading" class="absolute inset-0 flex items-center justify-center bg-slate-900/80">
+          <div class="text-slate-400 text-sm">Computing layout…</div>
+        </div>
+        <div x-show="!graphLoading && graphNodeCount === 0" class="absolute inset-0 flex items-center justify-center">
+          <div class="text-slate-600 text-sm">No hosts match the current filters.</div>
+        </div>
+        <!-- Zoom controls -->
+        <div class="absolute bottom-4 right-4 flex flex-col gap-1.5 z-10">
+          <button @click="zoomIn()" title="Zoom in"
+            class="w-8 h-8 flex items-center justify-center bg-slate-800/90 border border-slate-600 rounded-lg text-slate-200 hover:bg-slate-700 hover:border-slate-400 transition text-base font-bold select-none">+</button>
+          <button @click="zoomOut()" title="Zoom out"
+            class="w-8 h-8 flex items-center justify-center bg-slate-800/90 border border-slate-600 rounded-lg text-slate-200 hover:bg-slate-700 hover:border-slate-400 transition text-base font-bold select-none">−</button>
+          <button @click="fitGraph()" title="Fit all to view"
+            class="w-8 h-8 flex items-center justify-center bg-slate-800/90 border border-slate-600 rounded-lg text-slate-200 hover:bg-slate-700 hover:border-slate-400 transition text-sm select-none" style="font-size:16px">⊡</button>
+        </div>
+        <!-- Tooltip -->
+        <div x-show="tooltip.visible" x-cloak
+          class="absolute pointer-events-none bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl z-10"
+          :style="`left:${tooltip.x+14}px;top:${tooltip.y-10}px`">
+          <template x-if="tooltip.type === 'leaf'">
+            <div>
+              <div class="font-mono font-bold text-orange-400" x-text="tooltip.label"></div>
+              <div class="text-slate-400 mt-0.5" x-text="tooltip.sub"></div>
+              <div class="flex gap-2 mt-1">
+                <span x-show="tooltip.cvss > 0" class="text-red-400" x-text="'CVSS '+tooltip.cvss.toFixed(1)"></span>
+                <span x-show="tooltip.cves > 0" class="text-slate-400" x-text="tooltip.cves+' CVE(s)'"></span>
+              </div>
+            </div>
+          </template>
+          <template x-if="tooltip.type === 'hub'">
+            <div>
+              <div class="font-semibold text-slate-100 max-w-[200px] truncate" x-text="tooltip.label"></div>
+              <div class="text-slate-400 mt-0.5" x-text="tooltip.count + (tooltip.count===1?' host':' hosts')"></div>
+            </div>
+          </template>
+        </div>
+      </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════════════ -->
@@ -851,8 +1198,12 @@
             </p>
           </div>
           <div class="ml-auto inline-flex rounded-lg border border-slate-700 bg-slate-950 p-0.5 text-xs">
-            <template x-for="opt in [{k:'sites',label:'Websites',n:targetCounts.sites},{k:'all',label:'All web',n:targetCounts.all},{k:'infra',label:'Infrastructure',n:targetCounts.infra}]" :key="opt.k">
-              <button @click="targetType = opt.k"
+            <template x-for="opt in [{k:'sites',label:'Websites',n:targetCounts.sites,facet:'website'},{k:'all',label:'All web',n:targetCounts.all,facet:null},{k:'infra',label:'Infrastructure',n:targetCounts.infra,facet:'infra'}]" :key="opt.k">
+              <button @click="
+                targetType = opt.k; targetsPage = 0; targetStatusFilter = null;
+                globalFilters = globalFilters.filter(f => f.type !== 'site');
+                if (opt.facet) globalFilters.push({ type: 'site', value: opt.facet, label: opt.label });
+              "
                 class="px-3 py-1.5 rounded-md font-semibold transition flex items-center gap-1.5"
                 :class="targetType === opt.k ? 'bg-orange-500/90 text-white' : 'text-slate-400 hover:text-slate-200'">
                 <span x-text="opt.label"></span>
@@ -861,7 +1212,7 @@
             </template>
           </div>
           <div class="relative min-w-52">
-            <input type="text" x-model="targetSearch" placeholder="Filter by domain, IP or org…"
+            <input type="text" x-model="targetSearch" @input.debounce.200ms="targetsPage = 0" placeholder="Filter by domain, IP or org…"
               class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500">
           </div>
           <button @click="scanAll()" :disabled="scanningAll || !filteredTargets.length"
@@ -884,23 +1235,34 @@
               :style="`width:${scanProgress.total ? (scanProgress.done / scanProgress.total * 100) : 0}%`"></div>
           </div>
         </div>
-        <!-- Summary chips -->
+        <!-- Summary chips (click to filter by status) -->
         <div class="flex flex-wrap gap-2 mt-3 text-xs">
-          <span class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400">
-            <span class="text-slate-200 font-semibold" x-text="filteredTargets.length"></span> targets
-          </span>
-          <span class="px-2.5 py-1 rounded-lg bg-green-950/50 border border-green-900 text-green-400">
+          <button @click="targetStatusFilter = null; targetsPage = 0"
+            :class="targetStatusFilter === null ? 'ring-1 ring-orange-500' : 'opacity-70 hover:opacity-100'"
+            class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 transition cursor-pointer">
+            <span class="text-slate-200 font-semibold" x-text="filteredTargets.length + (targetStatusFilter ? '' : ' shown')"></span>
+            <span x-show="!targetStatusFilter"> total</span>
+          </button>
+          <button @click="targetStatusFilter = targetStatusFilter === 'up' ? null : 'up'; targetsPage = 0"
+            :class="targetStatusFilter === 'up' ? 'ring-1 ring-green-400' : 'opacity-70 hover:opacity-100'"
+            class="px-2.5 py-1 rounded-lg bg-green-950/50 border border-green-900 text-green-400 transition cursor-pointer">
             <span class="font-semibold" x-text="targetSummary.up"></span> up
-          </span>
-          <span class="px-2.5 py-1 rounded-lg bg-yellow-950/50 border border-yellow-900 text-yellow-400">
+          </button>
+          <button @click="targetStatusFilter = targetStatusFilter === 'warn' ? null : 'warn'; targetsPage = 0"
+            :class="targetStatusFilter === 'warn' ? 'ring-1 ring-yellow-400' : 'opacity-70 hover:opacity-100'"
+            class="px-2.5 py-1 rounded-lg bg-yellow-950/50 border border-yellow-900 text-yellow-400 transition cursor-pointer">
             <span class="font-semibold" x-text="targetSummary.warn"></span> http errors
-          </span>
-          <span class="px-2.5 py-1 rounded-lg bg-red-950/50 border border-red-900 text-red-400">
+          </button>
+          <button @click="targetStatusFilter = targetStatusFilter === 'down' ? null : 'down'; targetsPage = 0"
+            :class="targetStatusFilter === 'down' ? 'ring-1 ring-red-400' : 'opacity-70 hover:opacity-100'"
+            class="px-2.5 py-1 rounded-lg bg-red-950/50 border border-red-900 text-red-400 transition cursor-pointer">
             <span class="font-semibold" x-text="targetSummary.down"></span> down
-          </span>
-          <span class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400">
+          </button>
+          <button @click="targetStatusFilter = targetStatusFilter === 'unscanned' ? null : 'unscanned'; targetsPage = 0"
+            :class="targetStatusFilter === 'unscanned' ? 'ring-1 ring-slate-400' : 'opacity-70 hover:opacity-100'"
+            class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 transition cursor-pointer">
             <span class="font-semibold" x-text="targetSummary.open + targetSummary.unscanned"></span> unscanned / other
-          </span>
+          </button>
         </div>
         <!-- Bulk selection bar -->
         <div x-show="selectedCount" x-transition
@@ -919,20 +1281,10 @@
         </div>
         <!-- Actions -->
         <div class="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-800">
-          <button @click="generateExecSummary()" :disabled="!filteredTargets.length"
+          <button @click="reportBuilderOpen = true" :disabled="!stats"
             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-orange-500/90 hover:bg-orange-500 text-white transition disabled:opacity-50">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-            Executive summary
-          </button>
-          <button @click="exportExecSummaryHtml()" :disabled="!filteredTargets.length"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition disabled:opacity-50">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
-            Export HTML
-          </button>
-          <button @click="generateOrgReport()" :disabled="!filteredTargets.length"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition disabled:opacity-50">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-            Org report (PDF)
+            Build Report…
           </button>
           <button @click="exportTargetsCSV()" :disabled="!filteredTargets.length"
             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition disabled:opacity-50">
@@ -985,6 +1337,7 @@
                     title="Select all visible targets">
                 </th>
                 <th class="text-left px-4 py-3">Website / Domain</th>
+                <th class="text-left px-3 py-3">Title</th>
                 <th class="text-left px-3 py-3">Org</th>
                 <th class="text-left px-3 py-3">Status</th>
                 <th class="text-left px-3 py-3">Response</th>
@@ -994,7 +1347,7 @@
               </tr>
             </thead>
             <tbody>
-              <template x-for="t in filteredTargets" :key="t.key">
+              <template x-for="t in pagedTargets" :key="t.key">
                 <tr class="group border-b border-slate-800/50 hover:bg-slate-800/40 transition"
                   :class="selectedTargets[t.key] ? 'bg-orange-950/20' : ''">
                   <!-- Select -->
@@ -1030,6 +1383,15 @@
                       </template>
                     </div>
                   </td>
+                  <!-- Title / description -->
+                  <td class="px-3 py-3 max-w-[200px]">
+                    <span class="truncate block text-slate-300 text-[11px]"
+                      x-text="scans[t.key]?.title || t.http_title || '—'"
+                      :title="scans[t.key]?.title || t.http_title || ''"></span>
+                    <template x-if="scans[t.key]?.redirected">
+                      <div class="text-[10px] text-blue-400/70 mt-0.5 truncate" x-text="'→ ' + scans[t.key].final_url"></div>
+                    </template>
+                  </td>
                   <!-- Org -->
                   <td class="px-3 py-3 text-slate-400 max-w-[160px]">
                     <span class="truncate block" x-text="t.org || '—'"></span>
@@ -1038,12 +1400,6 @@
                   <!-- Status -->
                   <td class="px-3 py-3">
                     <span class="tag-badge border" :class="scanStatus(t.key).cls" x-text="scanStatus(t.key).label"></span>
-                    <template x-if="scans[t.key]?.title">
-                      <div class="text-[10px] text-slate-500 mt-1 truncate max-w-[180px]" x-text="scans[t.key].title"></div>
-                    </template>
-                    <template x-if="scans[t.key]?.redirected">
-                      <div class="text-[10px] text-blue-400/70 mt-0.5 truncate max-w-[180px]" x-text="'→ ' + scans[t.key].final_url"></div>
-                    </template>
                   </td>
                   <!-- Response time -->
                   <td class="px-3 py-3 text-slate-400 whitespace-nowrap">
@@ -1093,12 +1449,45 @@
           </table>
         </div>
       </div>
+
+      <!-- Targets pagination -->
+      <div x-show="targetsTotalPages > 1" class="flex items-center justify-between mt-3">
+        <div class="text-xs text-slate-500">
+          Page <span class="text-slate-300" x-text="targetsPage + 1"></span> of <span class="text-slate-300" x-text="targetsTotalPages"></span>
+          &nbsp;·&nbsp;
+          Showing <span class="text-slate-300" x-text="targetsPage * perPage + 1"></span>–<span class="text-slate-300" x-text="Math.min((targetsPage + 1) * perPage, filteredTargets.length)"></span>
+          of <span class="text-slate-300" x-text="filteredTargets.length"></span>
+        </div>
+        <div class="flex items-center gap-1">
+          <button @click="targetsPage = 0" :disabled="targetsPage === 0"
+            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">«</button>
+          <button @click="targetsPage--" :disabled="targetsPage === 0"
+            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">‹</button>
+          <template x-for="p in Array.from({length: targetsTotalPages}, (_, i) => i).filter(i => Math.abs(i - targetsPage) <= 2)" :key="p">
+            <button @click="targetsPage = p"
+              :class="p === targetsPage ? 'bg-orange-500 text-white border-orange-500' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'"
+              class="px-2.5 py-1 text-xs rounded border" x-text="p + 1"></button>
+          </template>
+          <button @click="targetsPage++" :disabled="targetsPage >= targetsTotalPages - 1"
+            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">›</button>
+          <button @click="targetsPage = targetsTotalPages - 1" :disabled="targetsPage >= targetsTotalPages - 1"
+            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">»</button>
+          <select x-model.number="perPage" @change="targetsPage = 0; savePerPage()"
+            class="ml-3 px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400">
+            <option value="10">10 / page</option>
+            <option value="25">25 / page</option>
+            <option value="50">50 / page</option>
+            <option value="100">100 / page</option>
+            <option value="200">200 / page</option>
+          </select>
+        </div>
+      </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════════════ -->
     <!--  DUPLICATES TAB                                                      -->
     <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <div x-show="view === 'duplicates'">
+    <template x-if="view === 'duplicates'"><div>
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4 flex flex-wrap items-center gap-x-6 gap-y-2">
         <div>
           <div class="text-2xl font-bold text-slate-100" x-text="duplicates?.group_count ?? '…'"></div>
@@ -1120,7 +1509,7 @@
       </div>
 
       <div class="space-y-2">
-        <template x-for="g in filteredDuplicates" :key="g.ip_str+':'+g.port">
+        <template x-for="g in pagedDups" :key="g.ip_str+':'+g.port">
           <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
             <div class="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-800/40" @click="g._open=!g._open">
               <span class="font-mono font-semibold text-orange-400" x-text="g.ip_str"></span>
@@ -1163,7 +1552,27 @@
           <div class="text-center py-12 text-slate-500" x-text="duplicates.group_count? 'No duplicates match your filter.' : 'No duplicate records — every IP:port is unique. 🎉'"></div>
         </template>
       </div>
-    </div>
+      <div x-show="dupsTotalPages > 1" class="flex items-center justify-between mt-3">
+        <div class="text-xs text-slate-500">
+          Page <span class="text-slate-300" x-text="dupsPage + 1"></span> of <span class="text-slate-300" x-text="dupsTotalPages"></span>
+          &nbsp;·&nbsp;
+          Showing <span class="text-slate-300" x-text="dupsPage * perPage + 1"></span>–<span class="text-slate-300" x-text="Math.min((dupsPage + 1) * perPage, filteredDuplicates.length)"></span>
+          of <span class="text-slate-300" x-text="filteredDuplicates.length"></span>
+        </div>
+        <div class="flex items-center gap-1">
+          <button @click="dupsPage = 0" :disabled="dupsPage === 0" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">«</button>
+          <button @click="dupsPage--" :disabled="dupsPage === 0" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">‹</button>
+          <template x-for="p in Array.from({length: dupsTotalPages}, (_, i) => i).filter(i => Math.abs(i - dupsPage) <= 2)" :key="p">
+            <button @click="dupsPage = p" :class="p === dupsPage ? 'bg-orange-500 text-white border-orange-500' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'" class="px-2.5 py-1 text-xs rounded border" x-text="p + 1"></button>
+          </template>
+          <button @click="dupsPage++" :disabled="dupsPage >= dupsTotalPages - 1" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">›</button>
+          <button @click="dupsPage = dupsTotalPages - 1" :disabled="dupsPage >= dupsTotalPages - 1" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">»</button>
+          <select x-model.number="perPage" @change="dupsPage = 0; savePerPage()" class="ml-3 px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400">
+            <option value="10">10 / page</option><option value="25">25 / page</option><option value="50">50 / page</option><option value="100">100 / page</option>
+          </select>
+        </div>
+      </div>
+    </div></template>
 
   </div><!-- /max-w container -->
 
@@ -1586,13 +1995,146 @@
     </div>
   </div>
 
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <!--  REPORT BUILDER MODAL                                              -->
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <div x-show="reportBuilderOpen" x-cloak
+    class="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/85 backdrop-blur p-4 overflow-y-auto"
+    @keydown.escape.window="reportBuilderOpen = false">
+    <div class="w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl my-8" @click.stop>
+
+      <!-- Header -->
+      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+        <div>
+          <h2 class="text-sm font-bold text-slate-100">Report Builder</h2>
+          <p class="text-xs text-slate-500 mt-0.5">Choose sections, set metadata, then generate or export.</p>
+        </div>
+        <button @click="reportBuilderOpen = false" class="text-slate-500 hover:text-slate-200 text-lg leading-none">✕</button>
+      </div>
+
+      <!-- Report metadata -->
+      <div class="px-6 py-4 border-b border-slate-800 space-y-3">
+        <p class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Report details</p>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="col-span-2">
+            <label class="block text-[10px] text-slate-500 mb-1">Report title</label>
+            <input type="text" x-model="reportMeta.title"
+              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-orange-500"
+              placeholder="Security Assessment Report">
+          </div>
+          <div>
+            <label class="block text-[10px] text-slate-500 mb-1">Organisation / client name</label>
+            <input type="text" x-model="reportMeta.org"
+              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-orange-500"
+              placeholder="e.g. Acme Corp">
+          </div>
+          <div>
+            <label class="block text-[10px] text-slate-500 mb-1">Prepared by</label>
+            <input type="text" x-model="reportMeta.analyst"
+              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-orange-500"
+              placeholder="Analyst name">
+          </div>
+          <div>
+            <label class="block text-[10px] text-slate-500 mb-1">Classification</label>
+            <select x-model="reportMeta.classification"
+              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-orange-500">
+              <option>CONFIDENTIAL</option>
+              <option>TLP:RED</option>
+              <option>TLP:AMBER</option>
+              <option>TLP:GREEN</option>
+              <option>INTERNAL USE ONLY</option>
+              <option>UNRESTRICTED</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[10px] text-slate-500 mb-1">Additional notes (appears in exec summary)</label>
+            <input type="text" x-model="reportMeta.notes"
+              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-orange-500"
+              placeholder="e.g. Scope: external perimeter scan">
+          </div>
+        </div>
+      </div>
+
+      <!-- Section picker -->
+      <div class="px-6 py-4 border-b border-slate-800">
+        <div class="flex items-center justify-between mb-3">
+          <p class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Sections — drag to reorder, check to include</p>
+          <div class="flex gap-2 text-[10px]">
+            <button @click="reportSections.forEach(s=>s.enabled=true)" class="text-slate-400 hover:text-orange-400">All on</button>
+            <span class="text-slate-700">·</span>
+            <button @click="reportSections.forEach(s=>s.enabled=false)" class="text-slate-400 hover:text-orange-400">All off</button>
+          </div>
+        </div>
+        <div class="space-y-1.5" id="report-section-list">
+          <template x-for="(s, i) in reportSections" :key="s.id">
+            <div class="flex items-start gap-3 p-2.5 rounded-lg border transition"
+              :class="s.enabled ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-950 border-slate-800 opacity-50'">
+              <!-- Drag handle & reorder -->
+              <div class="flex flex-col gap-0.5 mt-0.5 flex-shrink-0">
+                <button @click="i > 0 && reportSections.splice(i-1, 0, reportSections.splice(i, 1)[0])"
+                  :disabled="i === 0"
+                  class="text-slate-600 hover:text-slate-300 disabled:opacity-20 leading-none text-[10px]">▲</button>
+                <button @click="i < reportSections.length-1 && reportSections.splice(i+1, 0, reportSections.splice(i, 1)[0])"
+                  :disabled="i === reportSections.length - 1"
+                  class="text-slate-600 hover:text-slate-300 disabled:opacity-20 leading-none text-[10px]">▼</button>
+              </div>
+              <!-- Checkbox -->
+              <input type="checkbox" x-model="s.enabled" class="accent-orange-500 rounded mt-0.5 flex-shrink-0 cursor-pointer">
+              <!-- Label & description -->
+              <div class="min-w-0 flex-1 cursor-pointer" @click="s.enabled = !s.enabled">
+                <div class="text-xs font-semibold text-slate-200" x-text="s.label"></div>
+                <div class="text-[10px] text-slate-500 mt-0.5" x-text="s.desc"></div>
+              </div>
+              <!-- Section number -->
+              <span class="text-[10px] text-slate-600 flex-shrink-0 mt-0.5 w-4 text-right"
+                x-text="s.enabled ? (reportSections.filter((x,j)=>x.enabled&&j<=i).length) : '—'"></span>
+            </div>
+          </template>
+        </div>
+        <p class="text-[10px] text-slate-600 mt-2">
+          <span class="text-orange-400 font-semibold" x-text="reportSections.filter(s=>s.enabled).length"></span>
+          of <span x-text="reportSections.length"></span> sections selected.
+        </p>
+      </div>
+
+      <!-- Export options -->
+      <div class="px-6 pt-2 pb-1 border-t border-slate-800/60">
+        <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+          <input type="checkbox" x-model="reportOnlyWithCVEs" class="accent-orange-500 w-3.5 h-3.5">
+          Only include hosts with CVEs
+        </label>
+      </div>
+
+      <!-- Footer actions -->
+      <div class="flex items-center gap-3 px-6 py-4">
+        <button @click="buildReport('preview')"
+          class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-orange-500/90 hover:bg-orange-500 text-white transition">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+          Preview in browser
+        </button>
+        <button @click="buildReport('download')"
+          class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          Download HTML
+        </button>
+        <button @click="reportBuilderOpen = false" class="ml-auto text-xs text-slate-500 hover:text-slate-300">Cancel</button>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /x-data -->
 
 <script>
 function shodanify() {
   return {
     view: 'overview',
-    records: [],
+    records: [], // kept for backward-compat (graph modal lookup), populated lazily
+    // Server-paginated hosts data — no bulk fetch on startup
+    hostsData: { records: [], total: 0, filtered_total: 0, page: 0, per_page: 25,
+                 filtered_cve_ids: [], filtered_tech_counts: {}, loading: false },
+    targetsData: { records: [], filtered_total: 0, loading: false },
+    _hostsLoaded: false, // true once first fetchHosts() completes
+    _targetsLoaded: false,
     stats: null,
     duplicates: null,
     globalFilters: [],
@@ -1602,6 +2144,7 @@ function shodanify() {
     scanProgress: { done: 0, total: 0 },
     selectedTargets: {},
     targetSearch: '',
+    targetStatusFilter: null,  // null = all, or one of: 'up','warn','down','open','unscanned'
     targetType: 'sites',
     targetSort: 'status',
     infraDefaults: [],
@@ -1610,10 +2153,43 @@ function shodanify() {
     showInfraEditor: false,
     newInfraDomain: '',
     loading: true,
+    loadingSteps: [
+      { id: 'stats',    label: 'Loading statistics',         status: 'pending', detail: '' },
+      { id: 'dupes',    label: 'Loading duplicate report',   status: 'pending', detail: '' },
+      { id: 'infra',    label: 'Loading infrastructure list',status: 'pending', detail: '' },
+      { id: 'scans',    label: 'Loading scan history',       status: 'pending', detail: '' },
+    ],
     search: '',
+    _rawSearch: '',
     dupSearch: '',
     filters: { port: '', country: '', severity: '', hasCVE: false, verifiedCVE: false, hasSSL: false, sslExpired: false },
     sort: { by: 'timestamp', dir: 'desc' },
+    perPage: 25,
+    hostsPage: 0,
+    targetsPage: 0,
+    vulnsPage: 0,
+    techPage: 0,
+    dupsPage: 0,
+    _busyFilter: false,
+    reportBuilderOpen: false,
+    reportMeta: { title: 'Security Assessment Report', org: '', analyst: '', classification: 'CONFIDENTIAL', notes: '' },
+    reportOnlyWithCVEs: false,
+    reportSections: [
+      { id: 'cover',        label: 'Cover Page',                       desc: 'Title, organisation, analyst, date and classification.',          enabled: true  },
+      { id: 'exec',         label: 'Executive Summary',                desc: 'High-level paragraph with key risk posture and recommendations.',  enabled: true  },
+      { id: 'metrics',      label: 'Headline Metrics',                 desc: 'Stat cards: total hosts, CVEs, verified CVEs, critical hosts.',    enabled: true  },
+      { id: 'top_cvss',     label: 'Top Vulnerabilities by CVSS',      desc: 'Up to 20 highest-CVSS CVEs with full detail and affected hosts.',  enabled: true  },
+      { id: 'top_spread',   label: 'Widest-Spread Vulnerabilities',    desc: 'CVEs sorted by how many hosts they affect.',                      enabled: true  },
+      { id: 'top_verified', label: 'Verified / Exploitable CVEs',      desc: 'Only CVEs marked as confirmed exploitable in the wild.',          enabled: true  },
+      { id: 'websites',     label: 'Website Status & CVE Detail',      desc: 'Per-site status, HTTP details and full CVE tables.',              enabled: true  },
+      { id: 'orgs',         label: 'Organisation Breakdown',           desc: 'Hosts per org sorted by risk exposure.',                          enabled: true  },
+      { id: 'ports',        label: 'Port Exposure Summary',            desc: 'Which TCP ports are open and on how many hosts.',                 enabled: true  },
+      { id: 'tech',         label: 'Technology Stack',                 desc: 'Detected technologies sorted by host count.',                     enabled: true  },
+      { id: 'ssl',          label: 'TLS / Certificate Posture',        desc: 'SSL coverage, expired certs and self-signed breakdown.',          enabled: true  },
+      { id: 'infra',        label: 'Infrastructure Hosts',             desc: 'Cloud / VPS hosts that are not classified as real websites.',      enabled: false },
+      { id: 'all_hosts',    label: 'Full Host Listing',                desc: 'Complete table of all hosts with CVE count and CVSS.',            enabled: false },
+      { id: 'cve_ref',      label: 'Appendix: CVE Reference Table',   desc: 'All unique CVEs with CVSS, EPSS, verified flag and summary.',     enabled: true  },
+    ],
     vulnSearch: '',
     vulnFilter: '',
     vulnVerifiedOnly: false,
@@ -1624,57 +2200,215 @@ function shodanify() {
     modalTab: 'info',
 
     async init() {
+      const savedPerPage = parseInt(localStorage.getItem('shodanify.perPage') || '25');
+      if ([10, 25, 50, 100, 200].includes(savedPerPage)) this.perPage = savedPerPage;
       this.loadInfraPrefs();
-      await Promise.all([this.fetchRecords(), this.fetchStats(), this.fetchDuplicates(),
-        this.fetchScans(), this.fetchInfraDomains()]);
+      // Load lightweight data — hosts are loaded on-demand per tab/filter
+      await Promise.all([
+        this.fetchStats(),
+        this.fetchDuplicates(),
+        this.fetchInfraDomains(),
+        this.fetchScans(),
+      ]);
       this.loading = false;
+
+      // Debounced re-fetch when any filter/pagination state changes
+      const refetch = () => {
+        clearTimeout(this._fetchTimer);
+        this._fetchTimer = setTimeout(() => this.fetchHosts(), 40);
+      };
+      this.$watch('hostsPage', refetch);
+      this.$watch('perPage', refetch);
+      this.$watch('sort', refetch, { deep: true });
+      this.$watch('filters', refetch, { deep: true });
+      this.$watch('search', refetch);
+      this.$watch('globalFilters', refetch, { deep: true });
+
+      // Fetch targets/graph data when those tabs are opened
+      this.$watch('view', v => {
+        if (v === 'targets' && !this._targetsLoaded) this.fetchTargets();
+        if (v === 'graph') this.fetchGraphRecords();
+      });
+      // Keep targetType in sync with site facet changes
+      this.$watch('globalFilters', () => {
+        const siteFacet = this.globalFilters.find(f => f.type === 'site');
+        if (!siteFacet) this.targetType = 'all';
+        else if (siteFacet.value === 'website') this.targetType = 'sites';
+        else if (siteFacet.value === 'infra') this.targetType = 'infra';
+      }, { deep: true });
+      // Re-fetch targets/graph when filters change and those tabs are active
+      const refetchExtras = () => {
+        if (this.view === 'targets') this.fetchTargets();
+        if (this.view === 'graph') this.fetchGraphRecords();
+      };
+      this.$watch('globalFilters', refetchExtras, { deep: true });
+      this.$watch('filters', refetchExtras, { deep: true });
+      this.$watch('search', refetchExtras);
+
+      // Trigger initial hosts fetch
+      this.fetchHosts();
+      window._shodanifyOpenHost = (ip, port) => {
+        const r = this.hostsData.records.find(r => r.ip_str === ip && r.port === port);
+        if (r) { this.view = 'hosts'; this.$nextTick(() => this.openHost(r)); }
+      };
+    },
+
+    _stepSet(id, status, detail = '') {
+      const s = this.loadingSteps.find(s => s.id === id);
+      if (s) { s.status = status; s.detail = detail; }
     },
 
     async fetchInfraDomains() {
-      try { this.infraDefaults = await (await fetch('/api/infra-domains')).json(); } catch { this.infraDefaults = []; }
+      this._stepSet('infra', 'active');
+      try {
+        this.infraDefaults = await (await fetch('/api/infra-domains')).json();
+        this._stepSet('infra', 'done', `${this.infraDefaults.length} domains`);
+      } catch {
+        this.infraDefaults = [];
+        this._stepSet('infra', 'done', 'defaults');
+      }
     },
 
     async fetchScans() {
-      try { this.scans = await (await fetch('/api/scans')).json(); } catch { this.scans = {}; }
+      this._stepSet('scans', 'active');
+      try {
+        this.scans = await (await fetch('/api/scans')).json();
+        const n = Object.keys(this.scans).length;
+        this._stepSet('scans', 'done', n ? `${n} cached` : 'none yet');
+      } catch {
+        this.scans = {};
+        this._stepSet('scans', 'done', 'unavailable');
+      }
     },
 
-    async fetchRecords() {
-      const res = await fetch('/api/records');
-      this.records = await res.json();
+    _buildFilterParams(overrides = {}) {
+      const facets = this.globalFilters.map(f => ({ type: f.type, value: String(f.value) }));
+      return {
+        page: this.hostsPage,
+        per_page: this.perPage,
+        search: this.search.trim() || null,
+        port: this.filters.port ? parseInt(this.filters.port) : null,
+        country: this.filters.country || null,
+        severity: this.filters.severity || null,
+        has_cve: this.filters.hasCVE,
+        verified_cve: this.filters.verifiedCVE,
+        has_ssl: this.filters.hasSSL,
+        ssl_expired: this.filters.sslExpired,
+        facets,
+        sort_by: this.sort.by,
+        sort_dir: this.sort.dir,
+        ...overrides,
+      };
+    },
+
+    async fetchHosts() {
+      if (this._hostsInflight) return;
+      this._hostsInflight = true;
+      this.hostsData.loading = true;
+      try {
+        const res = await fetch('/api/hosts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this._buildFilterParams()),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        this.hostsData = { ...data, loading: false };
+        this._hostsLoaded = true;
+        this.records = data.records;
+        window._shodanifyGraphRecords = data.records;
+      } catch (e) { console.error('fetchHosts failed', e); }
+      finally { this._hostsInflight = false; this.hostsData.loading = false; }
+    },
+
+    async fetchGraphRecords() {
+      // Fetch up to 1000 records sorted by CVSS for the network graph
+      try {
+        const res = await fetch('/api/hosts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this._buildFilterParams({ page: 0, per_page: 1000, sort_by: 'max_cvss', sort_dir: 'desc' })),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        window._shodanifyGraphRecords = data.records;
+        // Signal graph to re-render if it's already open
+        window.dispatchEvent(new CustomEvent('shodanify-graph-data-updated'));
+      } catch (e) { console.error('fetchGraphRecords failed', e); }
+    },
+
+    async fetchTargets() {
+      if (this.targetsData.loading) return;
+      this.targetsData.loading = true;
+      try {
+        // Only add is_web:true when no site facet is active (i.e. "All web" mode).
+        // When site:website or site:infra is set, the facet already scopes to the right hosts
+        // and adding is_web:true would silently drop website-classified hosts on non-HTTP ports.
+        const hasSiteFacet = this.globalFilters.some(f => f.type === 'site');
+        const res = await fetch('/api/hosts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this._buildFilterParams({
+            is_web: !hasSiteFacet,
+            page: 0,
+            per_page: 10000,
+          })),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        this.targetsData = { records: data.records, filtered_total: data.filtered_total, loading: false };
+        this._targetsLoaded = true;
+      } catch (e) { console.error('fetchTargets failed', e); }
+      finally { this.targetsData.loading = false; }
     },
 
     async fetchStats() {
+      this._stepSet('stats', 'active');
       const res = await fetch('/api/stats');
       this.stats = await res.json();
+      const cves = this.stats?.vulns?.length ?? 0;
+      this._stepSet('stats', 'done', `${cves} CVEs`);
     },
 
     async fetchDuplicates() {
+      this._stepSet('dupes', 'active');
       const res = await fetch('/api/duplicates');
       this.duplicates = await res.json();
+      const n = this.duplicates?.group_count ?? 0;
+      this._stepSet('dupes', 'done', n ? `${n} collision groups` : 'none');
     },
 
     async reload() {
       this.loading = true;
       await fetch('/api/reload', { method: 'POST' });
-      await Promise.all([this.fetchRecords(), this.fetchStats(), this.fetchDuplicates()]);
+      await Promise.all([this.fetchStats(), this.fetchDuplicates()]);
+      this._hostsLoaded = false;
+      this._targetsLoaded = false;
+      await this.fetchHosts();
       this.loading = false;
     },
 
     // ── Global cross-tab facets ───────────────────────────────────────────
     toggleFacet(type, value, label, color) {
-      const i = this.globalFilters.findIndex(f => f.type === type && f.value === value);
-      if (i >= 0) this.globalFilters.splice(i, 1);
-      else this.globalFilters.push({ type, value, label: label ?? String(value), color: color || null });
+      this._deferred(() => {
+        const i = this.globalFilters.findIndex(f => f.type === type && f.value === value);
+        if (i >= 0) this.globalFilters.splice(i, 1);
+        else this.globalFilters.push({ type, value, label: label ?? String(value), color: color || null });
+        this._resetPages();
+      });
     },
     addFacets(list) {
-      for (const f of list)
-        if (!this.globalFilters.some(g => g.type === f.type && g.value === f.value)) this.globalFilters.push(f);
+      this._deferred(() => {
+        for (const f of list)
+          if (!this.globalFilters.some(g => g.type === f.type && g.value === f.value)) this.globalFilters.push(f);
+        this._resetPages();
+      });
     },
     hasFacet(type, value) {
       return this.globalFilters.some(f => f.type === type && f.value === value);
     },
-    removeFacet(i) { this.globalFilters.splice(i, 1); },
-    clearGlobal() { this.globalFilters = []; },
+    removeFacet(i) { this._deferred(() => { this.globalFilters.splice(i, 1); this._resetPages(); }); },
+    clearGlobal() { this._deferred(() => { this.globalFilters = []; this._resetPages(); }); },
 
     facetMatch(h, type, v) {
       switch (type) {
@@ -1685,6 +2419,7 @@ function shodanify() {
         case 'tech': return (h.tech || []).includes(v);
         case 'cve': return (h.cves || []).includes(v);
         case 'ssl': return (h.has_ssl ? (h.ssl_expired ? 'expired' : 'valid') : 'none') === v;
+        case 'site': return v === 'website' ? this.siteInfo(h).is_site : !this.siteInfo(h).is_site;
         default: return true;
       }
     },
@@ -1719,12 +2454,9 @@ function shodanify() {
     // The single source of truth every tab filters from: applies both the
     // cross-tab facets and the Hosts-tab search/filters, so a filter set on the
     // Hosts tab narrows Vulnerabilities, Technologies, Analytics and Targets too.
-    get baseRecords() {
-      let r = this.records;
-      if (this.globalFilters.length) r = r.filter(h => this.matchFacets(h));
-      if (this.hostFiltersActive) r = r.filter(h => this._matchHostFilters(h));
-      return r;
-    },
+    // Server-filtered and sorted — this is the current page of matching records.
+    // Client-side filtering/sorting are no longer needed; the server does it.
+    get baseRecords() { return this.hostsData.records; },
 
     // ── Site classification (client-side so the infra list is editable) ───
     get effectiveInfra() {
@@ -1743,6 +2475,53 @@ function shodanify() {
       for (const x of set) if (d === x || d.endsWith('.' + x)) return true;
       return false;
     },
+    // Returns true for reverse-DNS hostnames where IP octets are encoded in the subdomain:
+    //   "115.9.160.203.isphone.com.au", "203-196-40-164.static.dsl.net.au",
+    //   "cpe-120-148-33-130.vb07.vic...", "35.130.247.43.static.as24516.net"
+    _hasNumericHostnamePrefix(d) {
+      d = (d || '').replace(/^\.+|\.+$/, '');
+      const labels = d.split('.');
+      if (labels.length < 2) return false;
+      // Rule 1: first label has 3+ dash-separated numeric parts
+      const dashNums = labels[0].split('-').filter(p => /^\d+$/.test(p)).length;
+      if (dashNums >= 3) return true;
+      // Rule 2: 3+ consecutive leading labels are all-digit (IP octets)
+      let leading = 0;
+      for (const l of labels) { if (/^\d+$/.test(l)) leading++; else break; }
+      return leading >= 3;
+    },
+    // Technical subdomains that indicate server/service endpoints, not human-facing websites.
+    _TECHNICAL_SUBS: new Set([
+      'api','apis','mail','smtp','pop','pop3','imap','ftp','sftp','ssh',
+      'ns','ns1','ns2','ns3','ns4','mx','cpanel','whm','webmail','autodiscover',
+      'cdn','dev','staging','stage','test','sandbox','uat','qa','demo',
+      'beta','alpha','admin','manage','panel','dashboard','monitor','status',
+      'health','backup','archive','cache','proxy','gateway','vpn','citrix',
+      'remote','rdp','assets','static','media','img','images','files',
+      'downloads','upload','uploads','internal','intranet','corp','local',
+      'waf','sso','auth','oauth','oidc','idp','mgmt','management',
+    ]),
+    // Mirrors the Rust is_subdomain_infra() logic.
+    // Returns true when a domain has too many subdomain levels OR uses a technical prefix.
+    _isSubdomainInfra(domain) {
+      const labels = (domain || '').replace(/^\.+|\.+$/, '').split('.');
+      const n = labels.length;
+      if (n < 2) return false;
+      // Estimate TLD depth: last label is 2-char country code AND second-to-last is ≤4 alpha chars
+      const last = labels[n - 1], secondLast = labels[n - 2];
+      const tldDepth = (last.length === 2 && /^[a-z]+$/.test(last) && secondLast.length <= 4 && /^[a-z]+$/.test(secondLast)) ? 2 : 1;
+      const registeredDepth = tldDepth + 1;
+      const subdomainCount = Math.max(0, n - registeredDepth);
+      // (a) more than 1 subdomain level
+      if (subdomainCount > 1) return true;
+      // (b) single subdomain is a known technical/service name
+      if (subdomainCount === 1) {
+        const sub = labels[0].toLowerCase();
+        if (this._TECHNICAL_SUBS.has(sub)) return true;
+        if (sub.split('-').some(p => this._TECHNICAL_SUBS.has(p))) return true;
+      }
+      return false;
+    },
     classifySite(domains, sslCn) {
       const set = this.effectiveInfra;
       const cands = (domains || []).filter(d => this._looksLikeDomain(d));
@@ -1751,12 +2530,18 @@ function shodanify() {
         if (cn.startsWith('www.')) cn = cn.slice(4);
         if (this._looksLikeDomain(cn)) cands.push(cn);
       }
-      const real = [...new Set(cands)].filter(d => !this._isInfraDomain(d, set));
+      const real = [...new Set(cands)].filter(d =>
+        !this._isInfraDomain(d, set) && !this._hasNumericHostnamePrefix(d) && !this._isSubdomainInfra(d));
       if (!real.length) return { is_site: false, primary: null };
       real.sort((a, b) => ((a.match(/\./g) || []).length - (b.match(/\./g) || []).length) || (a.length - b.length));
       return { is_site: true, primary: real[0] };
     },
-    siteInfo(r) { return this.classifySite(r.domains, r.ssl_cn); },
+    siteInfo(r) {
+      const h = r.hostname || '';
+      // If the primary hostname is IP-encoded or a technical service endpoint, treat as infra
+      if (this._hasNumericHostnamePrefix(h) || this._isSubdomainInfra(h)) return { is_site: false, primary: null };
+      return this.classifySite(r.domains, r.ssl_cn);
+    },
 
     // Infra-domain list editing (persisted per-browser).
     loadInfraPrefs() {
@@ -1825,32 +2610,42 @@ function shodanify() {
     resetInfra() { this.infraAdded = []; this.infraRemoved = []; this.saveInfraPrefs(); },
 
     // ── Targets: live website health checks ───────────────────────────────
-    get targets() {
-      const webPorts = new Set([80, 443, 8080, 8443, 8000, 8888, 9443, 3000, 5000]);
+    // Pre-classify all records once; only recomputes when records or infra list changes.
+    get _allTargets() {
       const out = [];
-      for (const r of this.baseRecords) {
-        if (!(r.http_status != null || r.has_ssl || webPorts.has(r.port))) continue;
+      for (const r of this.targetsData.records) {
         const scheme = (r.has_ssl || r.port === 443 || r.port === 8443) ? 'https' : 'http';
         const def = (scheme === 'https' && r.port === 443) || (scheme === 'http' && r.port === 80);
         const site = this.siteInfo(r);
-        // Scan/display the real domain when we have one, not the cloud PTR.
         const host = site.primary || r.hostname;
         out.push({
           key: r.ip_str + ':' + r.port, ip: r.ip_str, port: r.port,
           hostname: host, display: host || r.ip_str,
           is_site: site.is_site, primary_domain: site.primary,
           org: r.org || r.isp, country_code: r.country_code, cloud: r.cloud,
-          vulns_count: r.vulns_count, max_cvss: r.max_cvss, cves: r.cves || [], scheme,
+          vulns_count: r.vulns_count, max_cvss: r.max_cvss, cves: r.cves || [],
+          http_title: r.http_title || null, scheme,
           url: `${scheme}://${host || r.ip_str}` + (def ? '' : `:${r.port}`),
         });
       }
       return out;
     },
 
+    // Targets are already filtered by the server — _allTargets IS the filtered set.
+    get targets() { return this._allTargets; },
+
     get targetCounts() {
-      let sites = 0;
-      for (const t of this.targets) if (t.is_site) sites++;
-      return { all: this.targets.length, sites, infra: this.targets.length - sites };
+      // Use the server's filtered_total for whichever mode drove the fetch;
+      // client-side counts for the other two (derived from the fetched records).
+      let sites = 0, infra = 0;
+      for (const t of this.targets) { if (t.is_site) sites++; else infra++; }
+      const serverTotal = this.targetsData.filtered_total ?? this.targets.length;
+      const activeFacet = this.globalFilters.find(f => f.type === 'site');
+      return {
+        all:   activeFacet ? this.targets.length : serverTotal,
+        sites: activeFacet?.value === 'website' ? serverTotal : sites,
+        infra: activeFacet?.value === 'infra'   ? serverTotal : infra,
+      };
     },
 
     get filteredTargets() {
@@ -1858,11 +2653,26 @@ function shodanify() {
       let t = this.targets;
       if (this.targetType === 'sites') t = t.filter(x => x.is_site);
       else if (this.targetType === 'infra') t = t.filter(x => !x.is_site);
+      if (this.targetStatusFilter) {
+        const f = this.targetStatusFilter;
+        // 'unscanned' means never scanned OR port-open-no-http (tone is 'open' or 'unscanned')
+        if (f === 'unscanned') t = t.filter(x => { const tone = this.scanStatus(x.key).tone; return tone === 'unscanned' || tone === 'open'; });
+        else t = t.filter(x => this.scanStatus(x.key).tone === f);
+      }
       if (q) t = t.filter(x =>
         x.ip.includes(q) || (x.display || '').toLowerCase().includes(q) ||
         (x.org || '').toLowerCase().includes(q) ||
         (this.scans[x.key]?.rdns || '').toLowerCase().includes(q));
       return t;
+    },
+
+    get targetsTotalPages() {
+      return Math.max(1, Math.ceil(this.filteredTargets.length / this.perPage));
+    },
+
+    get pagedTargets() {
+      const start = this.targetsPage * this.perPage;
+      return this.filteredTargets.slice(start, start + this.perPage);
     },
 
     get targetSummary() {
@@ -2129,9 +2939,484 @@ function shodanify() {
       this._download(html, `shodanify-website-vulnerabilities-${new Date().toISOString().slice(0, 10)}.html`, 'text/html');
     },
 
+    // ── Report builder ────────────────────────────────────────────────────
+    async buildReport(mode) {
+      const sections = this.reportSections.filter(s => s.enabled);
+      if (!sections.length) { alert('No sections selected.'); return; }
+
+      // Get all filtered keys from server (not just current page)
+      const keysRes = await fetch('/api/hosts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this._buildFilterParams({ page: 0, per_page: 99999 })),
+      });
+      if (!keysRes.ok) { alert('Failed to get filtered hosts.'); return; }
+      const keysData = await keysRes.json();
+      const filteredKeys = keysData.records.map(r => r.ip_str + ':' + r.port);
+
+      const payload = {
+        meta: this.reportMeta,
+        sections: sections.map(s => s.id),
+        filtered_keys: filteredKeys,
+        only_with_cves: this.reportOnlyWithCVEs,
+      };
+
+      try {
+        this._busyFilter = true;
+        const res = await fetch('/api/report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) { alert('Report generation failed: ' + res.statusText); return; }
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const date = new Date().toISOString().slice(0, 10);
+
+        if (mode === 'preview') {
+          window.open(url, '_blank');
+        } else {
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `shodanify-report-${date}.html`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+        }
+      } catch (e) {
+        alert('Report generation error: ' + e.message);
+      } finally {
+        this._busyFilter = false;
+      }
+    },
+
+    _buildCustomReport() {
+      const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+      const sections = this.reportSections.filter(s => s.enabled);
+      if (!sections.length) { alert('No sections selected.'); return null; }
+
+      const meta = this.reportMeta;
+      const now = new Date().toLocaleString();
+      const vmap = {};
+      for (const v of (this.stats?.vulns || [])) vmap[v.cve] = v;
+      const sevRank = { critical: 4, high: 3, medium: 2, low: 1, none: 0 };
+      const sevColor = { critical: '#dc2626', high: '#ea580c', medium: '#ca8a04', low: '#2563eb', none: '#64748b' };
+      const cvssColor = s => s >= 9 ? '#dc2626' : s >= 7 ? '#ea580c' : s >= 4 ? '#ca8a04' : s > 0 ? '#2563eb' : '#64748b';
+      const sevLabel = s => s >= 9 ? 'CRITICAL' : s >= 7 ? 'HIGH' : s >= 4 ? 'MEDIUM' : s > 0 ? 'LOW' : 'NONE';
+      const sevName = s => s >= 9 ? 'critical' : s >= 7 ? 'high' : s >= 4 ? 'medium' : s > 0 ? 'low' : 'none';
+
+      const totalHosts = this.stats?.total_records ?? 0;
+      const allVulns = this.stats?.vulns ?? [];
+      const sev = this.stats?.severity || {};
+      const criticalHosts = sev.critical || 0;
+      const highHosts = sev.high || 0;
+      const hostsWithCve = (sev.critical || 0) + (sev.high || 0) + (sev.medium || 0) + (sev.low || 0);
+      const verifiedCves = allVulns.filter(v => v.verified);
+      const sites = this.filteredTargets.filter(t => t.is_site);
+      const sitesUp = sites.filter(t => this.scanStatus(t.key).tone === 'up').length;
+      const sitesDown = sites.filter(t => this.scanStatus(t.key).tone === 'down').length;
+
+      const css = `
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{font:13px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;color:#1e293b;background:#f8fafc;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+        .page{max-width:900px;margin:0 auto;padding:40px 48px}
+        @media print{.noprint{display:none!important}.page{padding:20px 28px}.pagebreak{page-break-before:always}}
+        h1{font-size:28px;font-weight:800;color:#0f172a;line-height:1.2}
+        h2{font-size:16px;font-weight:700;color:#0f172a;margin:32px 0 12px;padding-bottom:6px;border-bottom:2px solid #e2e8f0}
+        h3{font-size:13px;font-weight:700;color:#334155;margin:18px 0 8px}
+        p{margin:6px 0;color:#475569}
+        .sub{font-size:11px;color:#94a3b8}
+        .mono{font-family:ui-monospace,monospace;font-size:11px}
+        a{color:#ea580c;text-decoration:none}a:hover{text-decoration:underline}
+        table{width:100%;border-collapse:collapse;margin:10px 0;font-size:12px}
+        th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;border-bottom:2px solid #e2e8f0;padding:7px 10px;background:#f1f5f9}
+        td{padding:7px 10px;border-bottom:1px solid #e2e8f0;vertical-align:top}
+        tr:hover td{background:#f8fafc}
+        .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+        .badge.critical{background:#fee2e2;color:#991b1b}.badge.high{background:#ffedd5;color:#9a3412}
+        .badge.medium{background:#fef9c3;color:#854d0e}.badge.low{background:#dbeafe;color:#1e40af}.badge.none{background:#f1f5f9;color:#475569}
+        .badge.up{background:#dcfce7;color:#166534}.badge.down{background:#fee2e2;color:#991b1b}.badge.warn{background:#fef9c3;color:#854d0e}.badge.open,.badge.unscanned{background:#f1f5f9;color:#64748b}
+        .cards{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0}
+        .card{flex:1;min-width:120px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+        .card .num{font-size:26px;font-weight:800;display:block;line-height:1.1}.card .lbl{font-size:10px;color:#94a3b8;display:block;margin-top:2px}
+        .card.red .num{color:#dc2626}.card.orange .num{color:#ea580c}.card.green .num{color:#16a34a}.card.blue .num{color:#2563eb}
+        .cve-bar{display:inline-block;height:6px;border-radius:3px;vertical-align:middle;margin-left:4px}
+        details.site-card{border:1px solid #e2e8f0;border-radius:10px;margin-bottom:8px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+        summary{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;list-style:none}
+        summary::-webkit-details-marker{display:none}summary::before{content:'▸';color:#94a3b8;font-size:11px;margin-right:2px}
+        details[open] summary::before{content:'▾'}summary:hover{background:#f8fafc}details[open] summary{border-bottom:1px solid #f1f5f9}
+        .body{padding:6px 16px 16px}.body table{margin:4px 0}
+        .site-name{font-size:14px;font-weight:700;color:#0f172a}.meta{font-size:11px;color:#64748b}
+        .ok{font-size:12px;font-weight:600;color:#16a34a;margin:8px 0}
+        .cover{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:80px 0}
+        .cover-class{display:inline-block;padding:4px 14px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.1em;background:#fee2e2;color:#991b1b;margin-bottom:32px}
+        .cover h1{font-size:38px;margin-bottom:12px}.cover .org{font-size:20px;color:#475569;margin-bottom:40px}
+        .cover-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:420px;margin-top:32px;font-size:12px}
+        .cover-grid dt{color:#94a3b8}.cover-grid dd{font-weight:600;color:#1e293b}
+        .bar-wrap{display:flex;align-items:center;gap:8px}
+        .bar-bg{flex:1;height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden}
+        .bar-fill{height:100%;border-radius:3px}
+        .toc{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:20px 24px;margin:24px 0}
+        .toc h3{margin:0 0 10px}.toc ol{padding-left:20px}.toc li{padding:2px 0;color:#475569;font-size:12px}
+        .sticky-bar{position:sticky;top:0;background:#fff;border-bottom:1px solid #e2e8f0;padding:8px 0;z-index:5;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+        input.flt{flex:1;min-width:180px;font:inherit;padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px}
+        button.ctrl{font:inherit;font-size:11px;padding:5px 12px;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;cursor:pointer}
+      `;
+
+      const script = `<script>
+        function filterSites(q){q=q.trim().toLowerCase();var n=0;document.querySelectorAll('details.site-card').forEach(function(d){var m=!q||d.dataset.name.indexOf(q)>-1;d.style.display=m?'':'none';if(m)n++;});var el=document.getElementById('sc');if(el)el.textContent=n;}
+        function setAll(open){document.querySelectorAll('details.site-card').forEach(function(d){if(d.style.display!=='none')d.open=open});}
+        window.addEventListener('beforeprint',function(){setAll(true);});
+      <\/script>`;
+
+      // TOC (built later once we know section order)
+      const secIdx = {};
+      let sNum = 0;
+      const toc = sections.map(s => { sNum++; secIdx[s.id] = sNum; return `<li><a href="#s${s.id}">${sNum}. ${esc(s.label)}</a></li>`; }).join('');
+
+      const parts = [];
+
+      for (const sec of sections) {
+        const n = secIdx[sec.id];
+
+        // ── Cover ────────────────────────────────────────────────────────
+        if (sec.id === 'cover') {
+          parts.push(`<div class="cover pagebreak" id="scover">
+            <span class="cover-class">${esc(meta.classification)}</span>
+            <h1>${esc(meta.title || 'Security Assessment Report')}</h1>
+            <div class="org">${esc(meta.org || '')}</div>
+            <p style="color:#64748b;font-size:13px">${esc(meta.notes || '')}</p>
+            <dl class="cover-grid">
+              <dt>Date</dt><dd>${esc(now)}</dd>
+              <dt>Prepared by</dt><dd>${esc(meta.analyst || 'Shodanify')}</dd>
+              <dt>Total hosts</dt><dd>${totalHosts.toLocaleString()}</dd>
+              <dt>CVEs identified</dt><dd>${allVulns.length.toLocaleString()}</dd>
+            </dl>
+          </div>`);
+        }
+
+        // ── Executive summary ─────────────────────────────────────────────
+        else if (sec.id === 'exec') {
+          const topCve = allVulns[0];
+          const spreadCve = allVulns.slice().sort((a,b)=>b.host_count-a.host_count)[0];
+          parts.push(`<div id="sexec" class="pagebreak">
+            <h2>${n}. Executive Summary</h2>
+            <p>This report presents findings from a Shodan-based reconnaissance assessment${meta.org ? ' of <strong>' + esc(meta.org) + '</strong>' : ''}. A total of <strong>${totalHosts.toLocaleString()} hosts</strong> were analysed across <strong>${(this.stats?.unique_ips ?? 0).toLocaleString()} unique IP addresses</strong>. The data covers <strong>${(this.stats?.unique_ports ?? 0)} distinct ports</strong>.</p>
+            <p style="margin-top:10px"><strong>${hostsWithCve.toLocaleString()} hosts (${totalHosts ? Math.round(hostsWithCve/totalHosts*100) : 0}%)</strong> carry at least one known vulnerability. Of these, <strong>${criticalHosts} host${criticalHosts!==1?'s':''}</strong> are exposed to critical-severity vulnerabilities (CVSS ≥ 9.0) and <strong>${highHosts} host${highHosts!==1?'s':''}</strong> to high-severity issues. <strong>${verifiedCves.length} vulnerability${verifiedCves.length!==1?'':''} cie${verifiedCves.length!==1?'s':''} confirmed exploitation in the wild</strong>.</p>
+            ${topCve ? `<p style="margin-top:10px">The highest-severity vulnerability identified is <strong>${esc(topCve.cve)}</strong> (CVSS ${topCve.max_cvss.toFixed(1)}, ${esc(topCve.severity.toUpperCase())}), affecting <strong>${topCve.host_count} host${topCve.host_count!==1?'s':''}</strong>. ${topCve.summary ? esc(topCve.summary.slice(0, 200)) + '…' : ''}</p>` : ''}
+            ${spreadCve && spreadCve !== topCve ? `<p>The most widespread vulnerability is <strong>${esc(spreadCve.cve)}</strong> (CVSS ${spreadCve.max_cvss.toFixed(1)}), present on <strong>${spreadCve.host_count} host${spreadCve.host_count!==1?'s':''}</strong>.</p>` : ''}
+            ${sites.length ? `<p style="margin-top:10px">Of <strong>${sites.length} organisation website${sites.length!==1?'s':''}</strong> checked, <strong>${sitesUp} ${sitesUp===1?'is':'are'} confirmed reachable</strong> and <strong>${sitesDown} ${sitesDown===1?'is':'are'} unreachable</strong>.</p>` : ''}
+            ${meta.notes ? `<p style="margin-top:10px;color:#475569"><em>Scope: ${esc(meta.notes)}</em></p>` : ''}
+          </div>`);
+        }
+
+        // ── Headline metrics ──────────────────────────────────────────────
+        else if (sec.id === 'metrics') {
+          const sev = this.stats?.severity ?? {};
+          parts.push(`<div id="smetrics">
+            <h2>${n}. Headline Metrics</h2>
+            <div class="cards">
+              <div class="card"><span class="num">${totalHosts.toLocaleString()}</span><span class="lbl">Total hosts</span></div>
+              <div class="card"><span class="num">${(this.stats?.unique_ips??0).toLocaleString()}</span><span class="lbl">Unique IPs</span></div>
+              <div class="card red"><span class="num">${criticalHosts}</span><span class="lbl">Critical hosts</span></div>
+              <div class="card orange"><span class="num">${highHosts}</span><span class="lbl">High-risk hosts</span></div>
+              <div class="card"><span class="num">${hostsWithCve.toLocaleString()}</span><span class="lbl">Hosts with CVEs</span></div>
+              <div class="card"><span class="num">${allVulns.length.toLocaleString()}</span><span class="lbl">Unique CVEs</span></div>
+              <div class="card green"><span class="num">${verifiedCves.length}</span><span class="lbl">Verified exploits</span></div>
+              <div class="card blue"><span class="num">${(this.stats?.unique_ports??0)}</span><span class="lbl">Distinct ports</span></div>
+            </div>
+            <h3>CVE Severity Breakdown</h3>
+            <table><thead><tr><th>Severity</th><th>CVE instances</th><th>% of total</th></tr></thead><tbody>
+              ${['critical','high','medium','low','none'].map(sv => {
+                const cnt = sev[sv] ?? 0;
+                const total = Object.values(sev).reduce((a,b)=>a+b,0)||1;
+                return `<tr><td><span class="badge ${sv}">${sv.toUpperCase()}</span></td><td>${cnt.toLocaleString()}</td><td>${Math.round(cnt/total*100)}%</td></tr>`;
+              }).join('')}
+            </tbody></table>
+          </div>`);
+        }
+
+        // ── Top vulns by CVSS ─────────────────────────────────────────────
+        else if (sec.id === 'top_cvss') {
+          const topVulns = allVulns.slice(0, 20);
+          const maxHosts = Math.max(...topVulns.map(v => v.host_count), 1);
+          parts.push(`<div id="stop_cvss" class="pagebreak">
+            <h2>${n}. Top Vulnerabilities by CVSS Score</h2>
+            <p class="sub">Up to 20 highest-CVSS vulnerabilities. Click a CVE ID to view the NVD entry.</p>
+            <table><thead><tr><th>CVE</th><th>CVSS</th><th>Severity</th><th>Hosts affected</th><th>EPSS</th><th>Verified</th><th>Description</th></tr></thead><tbody>
+              ${topVulns.map(v => `<tr>
+                <td class="mono"><a href="${esc(this._cveUrl(v.cve))}" target="_blank" rel="noopener">${esc(v.cve)}</a></td>
+                <td style="color:${cvssColor(v.max_cvss)};font-weight:700">${v.max_cvss.toFixed(1)}</td>
+                <td><span class="badge ${v.severity}">${v.severity.toUpperCase()}</span></td>
+                <td>
+                  <span style="font-weight:600">${v.host_count}</span>
+                  <span class="cve-bar" style="width:${Math.round(v.host_count/maxHosts*60)}px;background:${cvssColor(v.max_cvss)}"></span>
+                </td>
+                <td class="mono">${v.epss != null ? (v.epss*100).toFixed(2)+'%' : '—'}</td>
+                <td style="color:${v.verified?'#16a34a':'#94a3b8'};font-weight:600">${v.verified ? '✓ Yes' : 'No'}</td>
+                <td style="max-width:280px;color:#475569">${esc((v.summary||'').slice(0,200))}${(v.summary||'').length>200?'…':''}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>`);
+        }
+
+        // ── Top vulns by spread ───────────────────────────────────────────
+        else if (sec.id === 'top_spread') {
+          const spread = [...allVulns].sort((a,b)=>b.host_count-a.host_count).slice(0,15);
+          const maxH = Math.max(...spread.map(v => v.host_count), 1);
+          parts.push(`<div id="stop_spread">
+            <h2>${n}. Widest-Spread Vulnerabilities</h2>
+            <p class="sub">CVEs sorted by number of affected hosts — these represent the highest remediation priority at scale.</p>
+            <table><thead><tr><th>CVE</th><th>Hosts affected</th><th>Coverage</th><th>CVSS</th><th>Severity</th><th>Description</th></tr></thead><tbody>
+              ${spread.map(v => `<tr>
+                <td class="mono"><a href="${esc(this._cveUrl(v.cve))}" target="_blank" rel="noopener">${esc(v.cve)}</a></td>
+                <td style="font-weight:700">${v.host_count.toLocaleString()}</td>
+                <td><div class="bar-wrap"><div class="bar-bg"><div class="bar-fill" style="width:${Math.round(v.host_count/maxH*100)}%;background:${cvssColor(v.max_cvss)}"></div></div><span style="font-size:10px;color:#94a3b8">${Math.round(v.host_count/Math.max(totalHosts,1)*100)}%</span></div></td>
+                <td style="color:${cvssColor(v.max_cvss)};font-weight:700">${v.max_cvss.toFixed(1)}</td>
+                <td><span class="badge ${v.severity}">${v.severity.toUpperCase()}</span></td>
+                <td style="color:#475569">${esc((v.summary||'').slice(0,180))}${(v.summary||'').length>180?'…':''}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>`);
+        }
+
+        // ── Verified CVEs ─────────────────────────────────────────────────
+        else if (sec.id === 'top_verified') {
+          parts.push(`<div id="stop_verified">
+            <h2>${n}. Verified / Exploitable Vulnerabilities</h2>
+            <p class="sub">These CVEs have confirmed exploitation in the wild. Treat as highest remediation priority.</p>
+            ${verifiedCves.length ? `<table><thead><tr><th>CVE</th><th>CVSS</th><th>Severity</th><th>Hosts</th><th>EPSS</th><th>Description</th></tr></thead><tbody>
+              ${verifiedCves.map(v => `<tr>
+                <td class="mono"><a href="${esc(this._cveUrl(v.cve))}" target="_blank" rel="noopener">${esc(v.cve)}</a></td>
+                <td style="color:${cvssColor(v.max_cvss)};font-weight:700">${v.max_cvss.toFixed(1)}</td>
+                <td><span class="badge ${v.severity}">${v.severity.toUpperCase()}</span></td>
+                <td>${v.host_count}</td>
+                <td class="mono">${v.epss != null ? (v.epss*100).toFixed(2)+'%' : '—'}</td>
+                <td style="color:#475569">${esc((v.summary||'').slice(0,200))}</td>
+              </tr>`).join('')}
+            </tbody></table>` : '<p style="color:#16a34a;font-weight:600">✓ No verified exploitable vulnerabilities identified.</p>'}
+          </div>`);
+        }
+
+        // ── Websites ──────────────────────────────────────────────────────
+        else if (sec.id === 'websites') {
+          const siteSorted = [...sites].sort((a,b)=>(b.max_cvss-a.max_cvss)||(b.vulns_count-a.vulns_count)||a.display.localeCompare(b.display));
+          const scanned = siteSorted.filter(t => this.scans[t.key]);
+          const filterKey = t => `${t.display} ${t.ip}:${t.port} ${t.org||''} ${(t.cves||[]).join(' ')}`.toLowerCase();
+          const siteHtml = siteSorted.map(t => {
+            const st = this.scanStatus(t.key);
+            const sc = this.scans[t.key];
+            const cves = (t.cves||[]).map(c=>vmap[c]).filter(Boolean).sort((a,b)=>(sevRank[b.severity]-sevRank[a.severity])||(b.max_cvss-a.max_cvss));
+            return `<details class="site-card" data-name="${esc(filterKey(t))}">
+              <summary>
+                <span class="site-name">${esc(t.display)}</span>
+                <span class="meta mono">${esc(t.ip)}:${t.port}</span>
+                <span class="meta">${esc(t.org||'Unknown')}</span>
+                <span class="badge ${st.tone}">${esc(st.label)}</span>
+                ${t.vulns_count ? `<span class="meta"><strong style="color:${cvssColor(t.max_cvss)}">${t.vulns_count} CVE${t.vulns_count!==1?'s':''}</strong> · max CVSS ${t.max_cvss.toFixed(1)}</span>` : '<span style="color:#16a34a;font-size:11px;font-weight:600">No known CVEs</span>'}
+              </summary>
+              <div class="body">
+                <div style="display:flex;flex-wrap:wrap;gap:16px;margin:8px 0 10px;font-size:11px;color:#64748b">
+                  <span>🔗 <a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.url)}</a></span>
+                  ${sc ? `<span>HTTP ${sc.http_status||'—'}</span>` : ''}
+                  ${sc?.title ? `<span>Title: <em>${esc(sc.title)}</em></span>` : ''}
+                  ${sc?.http_ms != null ? `<span>Response: ${sc.http_ms}ms</span>` : ''}
+                  ${sc?.redirected ? `<span>↳ Redirects to ${esc(sc.final_url||'')}</span>` : ''}
+                  ${sc?.rdns ? `<span>rDNS: <span class="mono">${esc(sc.rdns)}</span></span>` : ''}
+                </div>
+                ${cves.length ? `<table><thead><tr><th>CVE</th><th>CVSS</th><th>Severity</th><th>Verified</th><th>EPSS</th><th>Description</th></tr></thead><tbody>
+                  ${cves.map(c=>`<tr>
+                    <td class="mono"><a href="${esc(this._cveUrl(c.cve))}" target="_blank" rel="noopener">${esc(c.cve)}</a></td>
+                    <td style="color:${cvssColor(c.max_cvss)};font-weight:700">${c.max_cvss.toFixed(1)}</td>
+                    <td><span class="badge ${c.severity}">${c.severity.toUpperCase()}</span></td>
+                    <td style="color:${c.verified?'#16a34a':'#94a3b8'};font-weight:600">${c.verified?'✓ Verified':'No'}</td>
+                    <td class="mono">${c.epss!=null?(c.epss*100).toFixed(2)+'%':'—'}</td>
+                    <td style="color:#475569">${esc((c.summary||'').slice(0,240))}</td>
+                  </tr>`).join('')}
+                </tbody></table>` : `<p class="ok">✓ No known vulnerabilities for this website.</p>`}
+              </div>
+            </details>`;
+          }).join('');
+          parts.push(`<div id="swebsites" class="pagebreak">
+            <h2>${n}. Website Status &amp; CVE Detail</h2>
+            <div class="cards" style="margin-bottom:16px">
+              <div class="card"><span class="num">${siteSorted.length}</span><span class="lbl">Total websites</span></div>
+              <div class="card green"><span class="num">${sitesUp}</span><span class="lbl">Confirmed up</span></div>
+              <div class="card red"><span class="num">${sitesDown}</span><span class="lbl">Unreachable</span></div>
+              <div class="card"><span class="num">${scanned.length}</span><span class="lbl">Actively scanned</span></div>
+              <div class="card orange"><span class="num">${siteSorted.filter(t=>t.vulns_count>0).length}</span><span class="lbl">With CVEs</span></div>
+            </div>
+            <div class="sticky-bar noprint">
+              <input class="flt" id="site-flt" placeholder="Filter by site, IP, org or CVE…" oninput="filterSites(this.value)">
+              <button class="ctrl" onclick="setAll(true)">Expand all</button>
+              <button class="ctrl" onclick="setAll(false)">Collapse all</button>
+              <button class="ctrl" onclick="window.print()">Print / PDF</button>
+              <span id="sc" style="font-size:11px;color:#94a3b8">${siteSorted.length}</span> shown
+            </div>
+            ${siteHtml || '<p style="color:#64748b">No website targets in current filter.</p>'}
+          </div>`);
+        }
+
+        // ── Orgs breakdown ────────────────────────────────────────────────
+        else if (sec.id === 'orgs') {
+          const orgMap = {};
+          for (const r of this.filteredRecords) {
+            const o = r.org || r.isp || 'Unknown';
+            if (!orgMap[o]) orgMap[o] = { name: o, hosts: 0, cvss: 0, cves: 0 };
+            orgMap[o].hosts++;
+            if ((r.max_cvss||0) > orgMap[o].cvss) orgMap[o].cvss = r.max_cvss;
+            orgMap[o].cves += r.vulns_count || 0;
+          }
+          const orgs = Object.values(orgMap).sort((a,b)=>b.cvss-a.cvss||b.hosts-a.hosts).slice(0,30);
+          parts.push(`<div id="sorgs">
+            <h2>${n}. Organisation Breakdown</h2>
+            <p class="sub">Top 30 organisations by maximum CVE severity. Shows total host count and cumulative CVE instances.</p>
+            <table><thead><tr><th>Organisation</th><th>Hosts</th><th>Max CVSS</th><th>Severity</th><th>Total CVE instances</th></tr></thead><tbody>
+              ${orgs.map(o=>`<tr>
+                <td style="font-weight:600">${esc(o.name)}</td>
+                <td>${o.hosts}</td>
+                <td style="color:${cvssColor(o.cvss)};font-weight:700">${o.cvss > 0 ? o.cvss.toFixed(1) : '—'}</td>
+                <td>${o.cvss > 0 ? `<span class="badge ${sevName(o.cvss)}">${sevLabel(o.cvss)}</span>` : '—'}</td>
+                <td>${o.cves.toLocaleString()}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>`);
+        }
+
+        // ── Ports ─────────────────────────────────────────────────────────
+        else if (sec.id === 'ports') {
+          const ports = this.stats?.top_ports ?? [];
+          const maxP = Math.max(...ports.map(p=>p.count), 1);
+          parts.push(`<div id="sports">
+            <h2>${n}. Port Exposure Summary</h2>
+            <table><thead><tr><th>Port</th><th>Hosts</th><th>Coverage</th><th>% of fleet</th></tr></thead><tbody>
+              ${ports.map(p=>`<tr>
+                <td class="mono" style="font-weight:700">:${p.port}</td>
+                <td>${p.count.toLocaleString()}</td>
+                <td><div class="bar-wrap"><div class="bar-bg"><div class="bar-fill" style="width:${Math.round(p.count/maxP*100)}%;background:#ea580c"></div></div></div></td>
+                <td>${Math.round(p.count/Math.max(totalHosts,1)*100)}%</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>`);
+        }
+
+        // ── Tech ──────────────────────────────────────────────────────────
+        else if (sec.id === 'tech') {
+          const tech = this.stats?.tech ?? [];
+          const maxT = Math.max(...tech.map(t=>t.count), 1);
+          parts.push(`<div id="stech">
+            <h2>${n}. Technology Stack</h2>
+            <table><thead><tr><th>Technology</th><th>Hosts</th><th>Adoption</th><th>% of fleet</th></tr></thead><tbody>
+              ${tech.map(t=>`<tr>
+                <td style="font-weight:600">${esc(t.name)}</td>
+                <td>${t.count.toLocaleString()}</td>
+                <td><div class="bar-wrap"><div class="bar-bg"><div class="bar-fill" style="width:${Math.round(t.count/maxT*100)}%;background:#f97316"></div></div></div></td>
+                <td>${Math.round(t.count/Math.max(totalHosts,1)*100)}%</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>`);
+        }
+
+        // ── SSL/TLS ───────────────────────────────────────────────────────
+        else if (sec.id === 'ssl') {
+          const hosts = this.filteredRecords;
+          const sslHosts = hosts.filter(h => h.has_ssl).length;
+          const noSsl = hosts.length - sslHosts;
+          const expired = hosts.filter(h => h.ssl_expired).length;
+          const selfSigned = hosts.filter(h => h.ssl && !h.ssl_expired && !h.org).length;
+          parts.push(`<div id="sssl">
+            <h2>${n}. TLS / Certificate Posture</h2>
+            <div class="cards">
+              <div class="card green"><span class="num">${sslHosts.toLocaleString()}</span><span class="lbl">Hosts with TLS</span></div>
+              <div class="card red"><span class="num">${noSsl.toLocaleString()}</span><span class="lbl">No TLS</span></div>
+              <div class="card red"><span class="num">${expired}</span><span class="lbl">Expired certs</span></div>
+            </div>
+            <table><thead><tr><th>Status</th><th>Hosts</th><th>% of fleet</th></tr></thead><tbody>
+              <tr><td style="color:#16a34a;font-weight:600">Valid TLS</td><td>${(sslHosts - expired).toLocaleString()}</td><td>${Math.round((sslHosts-expired)/Math.max(hosts.length,1)*100)}%</td></tr>
+              <tr><td style="color:#dc2626;font-weight:600">Expired certificate</td><td>${expired.toLocaleString()}</td><td>${Math.round(expired/Math.max(hosts.length,1)*100)}%</td></tr>
+              <tr><td style="color:#94a3b8;font-weight:600">No TLS</td><td>${noSsl.toLocaleString()}</td><td>${Math.round(noSsl/Math.max(hosts.length,1)*100)}%</td></tr>
+            </tbody></table>
+          </div>`);
+        }
+
+        // ── Infra hosts ───────────────────────────────────────────────────
+        else if (sec.id === 'infra') {
+          const infraHosts = this.filteredTargets.filter(t => !t.is_site).slice(0, 200);
+          parts.push(`<div id="sinfra" class="pagebreak">
+            <h2>${n}. Infrastructure Hosts</h2>
+            <p class="sub">Cloud and VPS hosts not classified as organisation websites. Showing up to 200.</p>
+            <table><thead><tr><th>IP</th><th>Port</th><th>Hostname</th><th>Provider</th><th>Org</th><th>CVEs</th><th>Max CVSS</th></tr></thead><tbody>
+              ${infraHosts.map(t=>`<tr>
+                <td class="mono">${esc(t.ip)}</td>
+                <td>${t.port}</td>
+                <td class="mono" style="font-size:10px">${esc(t.hostname||'—')}</td>
+                <td>${esc(t.cloud?.provider||'—')}</td>
+                <td>${esc(t.org||'—')}</td>
+                <td>${t.vulns_count||'—'}</td>
+                <td style="color:${cvssColor(t.max_cvss||0)};font-weight:${(t.max_cvss||0)>0?700:400}">${(t.max_cvss||0)>0?t.max_cvss.toFixed(1):'—'}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>`);
+        }
+
+        // ── All hosts ─────────────────────────────────────────────────────
+        else if (sec.id === 'all_hosts') {
+          const allH = this.hostsData.records.slice(0, 500);
+          parts.push(`<div id="sall_hosts" class="pagebreak">
+            <h2>${n}. Full Host Listing</h2>
+            <p class="sub">All hosts sorted by highest CVE severity. Capped at 500 rows in the report; export CSV for the complete dataset.</p>
+            <table><thead><tr><th>IP</th><th>Port</th><th>Org</th><th>Country</th><th>CVEs</th><th>Max CVSS</th><th>Severity</th><th>Scanned</th></tr></thead><tbody>
+              ${[...allH].sort((a,b)=>(b.max_cvss||0)-(a.max_cvss||0)).map(r=>`<tr>
+                <td class="mono" style="font-weight:600">${esc(r.ip_str)}</td>
+                <td>${r.port}</td>
+                <td style="font-size:11px">${esc(r.org||r.isp||'—')}</td>
+                <td style="font-size:11px">${esc(r.country_name||r.country_code||'—')}</td>
+                <td>${r.vulns_count||'—'}</td>
+                <td style="color:${cvssColor(r.max_cvss||0)};font-weight:${(r.max_cvss||0)>0?700:400}">${(r.max_cvss||0)>0?r.max_cvss.toFixed(1):'—'}</td>
+                <td>${(r.max_cvss||0)>0?`<span class="badge ${sevName(r.max_cvss||0)}">${sevLabel(r.max_cvss||0)}</span>`:'—'}</td>
+                <td style="font-size:10px;color:#94a3b8">${r.timestamp?r.timestamp.slice(0,10):'—'}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>`);
+        }
+
+        // ── CVE reference ─────────────────────────────────────────────────
+        else if (sec.id === 'cve_ref') {
+          parts.push(`<div id="scve_ref" class="pagebreak">
+            <h2>${n}. Appendix: CVE Reference Table</h2>
+            <p class="sub">All ${allVulns.length.toLocaleString()} unique CVEs identified, sorted by CVSS score.</p>
+            <table><thead><tr><th>CVE</th><th>CVSS</th><th>Severity</th><th>Hosts</th><th>EPSS</th><th>Verified</th><th>Summary</th></tr></thead><tbody>
+              ${allVulns.map(v=>`<tr>
+                <td class="mono" style="white-space:nowrap"><a href="${esc(this._cveUrl(v.cve))}" target="_blank" rel="noopener">${esc(v.cve)}</a></td>
+                <td style="color:${cvssColor(v.max_cvss)};font-weight:700">${v.max_cvss.toFixed(1)}</td>
+                <td><span class="badge ${v.severity}">${v.severity.toUpperCase()}</span></td>
+                <td>${v.host_count}</td>
+                <td class="mono">${v.epss!=null?(v.epss*100).toFixed(2)+'%':'—'}</td>
+                <td style="color:${v.verified?'#16a34a':'#94a3b8'}">${v.verified?'✓':''}</td>
+                <td style="color:#475569;font-size:11px">${esc((v.summary||'').slice(0,180))}</td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>`);
+        }
+      }
+
+      const tocHtml = `<div class="toc noprint"><h3>Contents</h3><ol>${toc}</ol></div>`;
+      const footer = `<div class="sub" style="margin-top:48px;padding-top:12px;border-top:1px solid #e2e8f0;text-align:center">
+        Generated by Shodanify · ${esc(now)} · ${esc(meta.classification)}
+      </div>`;
+
+      return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(meta.title||'Security Report')}</title>
+        <style>${css}</style></head><body>
+        <div class="page">${tocHtml}${parts.join('\n')}${footer}</div>
+        ${script}</body></html>`;
+    },
+
     clearFilters() {
-      this.filters = { port: '', country: '', severity: '', hasCVE: false, verifiedCVE: false, hasSSL: false, sslExpired: false };
-      this.search = '';
+      this._deferred(() => {
+        this.filters = { port: '', country: '', severity: '', hasCVE: false, verifiedCVE: false, hasSSL: false, sslExpired: false };
+        this.search = ''; this._rawSearch = '';
+        this._resetPages();
+      });
     },
 
     // Removable chips for the active Hosts-tab filters, shown in the cross-tab bar.
@@ -2148,10 +3433,33 @@ function shodanify() {
       return out;
     },
     clearHostFilter(key) {
-      if (key === 'search') this.search = '';
-      else this.filters[key] = typeof this.filters[key] === 'boolean' ? false : '';
+      if (key === 'search') { this._deferred(() => { this.search = ''; this._rawSearch = ''; this._resetPages(); }); }
+      else this._deferred(() => { this.filters[key] = typeof this.filters[key] === 'boolean' ? false : ''; this._resetPages(); });
     },
-    clearAllFilters() { this.clearGlobal(); this.clearFilters(); },
+    clearAllFilters() {
+      this._deferred(() => {
+        this.globalFilters = [];
+        this.filters = { port: '', country: '', severity: '', hasCVE: false, verifiedCVE: false, hasSSL: false, sslExpired: false };
+        this.search = ''; this._rawSearch = '';
+        this._resetPages();
+      });
+    },
+
+    _resetPages() {
+      this.hostsPage = 0; this.targetsPage = 0;
+      this.vulnsPage = 0; this.techPage = 0; this.dupsPage = 0;
+      this._targetsLoaded = false; // filters changed, targets need reload
+    },
+
+    _deferred(fn) {
+      this._busyFilter = true;
+      setTimeout(() => { fn(); this._busyFilter = false; }, 0);
+    },
+
+    savePerPage() {
+      localStorage.setItem('shodanify.perPage', this.perPage);
+      this._resetPages();
+    },
 
     async openHost(record) {
       this.selectedRecord = record;
@@ -2163,7 +3471,7 @@ function shodanify() {
     },
 
     async openHostByIp(ip, port) {
-      const r = this.records.find(r => r.ip_str === ip && r.port === port);
+      const r = this.hostsData.records.find(r => r.ip_str === ip && r.port === port);
       if (r) this.openHost(r);
     },
 
@@ -2173,20 +3481,14 @@ function shodanify() {
     },
 
     get portOptions() {
-      const counts = {};
-      for (const r of this.records) if (r.port) counts[r.port] = (counts[r.port] || 0) + 1;
-      return Object.entries(counts).map(([port, count]) => ({ port: +port, count }))
-        .sort((a, b) => b.count - a.count);
+      // Use global stats port data for the filter dropdown
+      const top = this.stats?.top_ports || [];
+      return top.map(p => ({ port: p.port, count: p.count }));
     },
 
     get countryOptions() {
-      const m = {};
-      for (const r of this.records) {
-        const code = r.country_code || 'XX';
-        if (!m[code]) m[code] = { code, name: r.country_name || 'Unknown', count: 0 };
-        m[code].count++;
-      }
-      return Object.values(m).sort((a, b) => b.count - a.count);
+      const top = this.stats?.top_countries || [];
+      return top.map(c => ({ code: c.code || c.country_code, name: c.name || c.country_name || c.code, count: c.count }));
     },
 
     sevName(score) {
@@ -2241,20 +3543,34 @@ function shodanify() {
     },
 
     // baseRecords already carries the active search + filters; here we only sort.
-    get filteredRecords() {
-      return [...this.baseRecords].sort((a, b) => {
-        const av = a[this.sort.by] ?? '', bv = b[this.sort.by] ?? '';
-        if (av < bv) return this.sort.dir === 'asc' ? -1 : 1;
-        if (av > bv) return this.sort.dir === 'asc' ? 1 : -1;
-        return 0;
-      });
+    // Server handles filtering and sorting — pagedRecords is just the current page from the API.
+    get filteredRecords() { return this.hostsData.records; },
+    get hostsTotalPages() {
+      return Math.max(1, Math.ceil(this.hostsData.filtered_total / this.perPage));
+    },
+    get pagedRecords() { return this.hostsData.records; },
+
+    get vulnsTotalPages() { return Math.max(1, Math.ceil(this.filteredVulns.length / this.perPage)); },
+    get pagedVulns() {
+      const p = Math.min(this.vulnsPage, this.vulnsTotalPages - 1);
+      return this.filteredVulns.slice(p * this.perPage, (p + 1) * this.perPage);
+    },
+    get techTotalPages() { return Math.max(1, Math.ceil(this.filteredTech.length / this.perPage)); },
+    get pagedTech() {
+      const p = Math.min(this.techPage, this.techTotalPages - 1);
+      return this.filteredTech.slice(p * this.perPage, (p + 1) * this.perPage);
+    },
+    get dupsTotalPages() { return Math.max(1, Math.ceil(this.filteredDuplicates.length / this.perPage)); },
+    get pagedDups() {
+      const p = Math.min(this.dupsPage, this.dupsTotalPages - 1);
+      return this.filteredDuplicates.slice(p * this.perPage, (p + 1) * this.perPage);
     },
 
     get filteredTech() {
       if (!this.stats) return [];
       if (!this.anyFilterActive) return this.stats.tech;
-      const cnt = {};
-      for (const r of this.baseRecords) for (const t of (r.tech || [])) cnt[t] = (cnt[t] || 0) + 1;
+      // Use server-computed tech counts for the filtered set
+      const cnt = this.hostsData.filtered_tech_counts || {};
       return this.stats.tech.filter(t => cnt[t.name])
         .map(t => ({ ...t, count: cnt[t.name] }))
         .sort((a, b) => b.count - a.count);
@@ -2266,9 +3582,15 @@ function shodanify() {
       // Restrict to CVEs present on the currently-filtered hosts, then narrow
       // by any active severity selection (cross-tab facet or Hosts-tab filter).
       if (this.anyFilterActive) {
-        const set = new Set();
-        for (const h of this.baseRecords) for (const c of (h.cves || [])) set.add(c);
-        v = v.filter(x => set.has(x.cve));
+        // When specific CVEs are selected as facets, show only those CVEs
+        const cveFilters = this.globalFilters.filter(f => f.type === 'cve').map(f => f.value);
+        if (cveFilters.length) {
+          v = v.filter(x => cveFilters.includes(x.cve));
+        } else {
+          // Otherwise restrict to CVEs present on the filtered set (from server)
+          const set = new Set(this.hostsData.filtered_cve_ids || []);
+          v = v.filter(x => set.has(x.cve));
+        }
         const sevVals = this.globalFilters.filter(f => f.type === 'severity').map(f => f.value);
         if (this.filters.severity) sevVals.push(this.filters.severity);
         if (sevVals.length) v = v.filter(x => sevVals.includes(x.severity));
@@ -2389,6 +3711,7 @@ function shodanify() {
         this.sort.by = field;
         this.sort.dir = 'desc';
       }
+      this.hostsPage = 0;
     },
 
     severityColor(score) {
@@ -2443,6 +3766,354 @@ function shodanify() {
       if (s < 86400) return Math.floor(s / 3600) + 'h ago';
       if (s < 604800) return Math.floor(s / 86400) + 'd ago';
       return new Date(ts).toLocaleDateString();
+    },
+  };
+}
+
+// ── Network Graph ──────────────────────────────────────────────────────────
+function networkGraph() {
+  return {
+    gf: {
+      groupBy: 'org',      // 'org' | 'subnet' | 'country' | 'cve'
+      leafColor: 'severity', // 'severity' | 'group'
+      minCvss: 0,
+      cveFilter: '',
+      orgFilter: '',
+      maxHosts: 300,
+      showLabels: true,
+    },
+    graphNodeCount: 0,
+    graphHubCount: 0,
+    graphEdgeCount: 0,
+    graphLoading: false,
+    tooltip: { visible: false, type: 'leaf', x: 0, y: 0, label: '', sub: '', cvss: 0, cves: 0, count: 0 },
+    _colorLegend: [],
+    _sim: null,
+    _canvas: null,
+    _ctx: null,
+    _nodes: [],
+    _links: [],
+    _transform: { k: 1, x: 0, y: 0 },
+    _zoomBehavior: null,
+    _palette: [
+      '#f97316','#60a5fa','#34d399','#c084fc','#fb7185',
+      '#facc15','#22d3ee','#a78bfa','#f472b6','#4ade80',
+      '#e879f9','#2dd4bf','#fb923c','#818cf8','#a3e635',
+      '#38bdf8','#f43f5e','#84cc16','#06b6d4','#fbbf24',
+    ],
+
+    initGraph() {
+      if (this._canvas) { this.renderGraph(); return; }
+      this._canvas = document.getElementById('graph-canvas');
+      if (!this._canvas) return;
+      this._ctx = this._canvas.getContext('2d');
+      this._resizeCanvas();
+      window.addEventListener('shodanify-graph-data-updated', () => this.renderGraph());
+
+      this._zoomBehavior = d3.zoom().scaleExtent([0.04, 10]).on('zoom', (e) => {
+        this._transform = e.transform;
+        this._draw();
+      });
+      d3.select(this._canvas).call(this._zoomBehavior);
+
+      this._canvas.addEventListener('mousemove', (e) => this._onMove(e));
+      this._canvas.addEventListener('click', (e) => this._onClick(e));
+      this._canvas.addEventListener('mouseleave', () => { this.tooltip.visible = false; });
+      window.addEventListener('resize', () => { this._resizeCanvas(); this._draw(); });
+      this.renderGraph();
+    },
+
+    zoomIn()  { if (this._zoomBehavior && this._canvas) d3.select(this._canvas).call(this._zoomBehavior.scaleBy, 1.5); },
+    zoomOut() { if (this._zoomBehavior && this._canvas) d3.select(this._canvas).call(this._zoomBehavior.scaleBy, 1/1.5); },
+    fitGraph() {
+      if (!this._nodes.length || !this._canvas || !this._zoomBehavior) return;
+      const pad = 64;
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+      for (const n of this._nodes) {
+        if (!isFinite(n.x)) continue;
+        x0 = Math.min(x0, n.x - n.r); x1 = Math.max(x1, n.x + n.r);
+        y0 = Math.min(y0, n.y - n.r); y1 = Math.max(y1, n.y + n.r);
+      }
+      if (!isFinite(x0)) return;
+      const W = this._canvas.offsetWidth, H = this._canvas.offsetHeight;
+      const k = Math.min(8, Math.min((W-2*pad)/(x1-x0||1), (H-2*pad)/(y1-y0||1)));
+      const tx = W/2 - k*(x0+x1)/2, ty = H/2 - k*(y0+y1)/2;
+      d3.select(this._canvas).call(this._zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
+    },
+
+    _resizeCanvas() {
+      if (!this._canvas) return;
+      const r = this._canvas.getBoundingClientRect();
+      this._canvas.width  = r.width  * devicePixelRatio;
+      this._canvas.height = r.height * devicePixelRatio;
+      if (this._ctx) this._ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    },
+
+    _sev(cvss) {
+      if (!cvss) return '#475569';
+      if (cvss >= 9) return '#ef4444';
+      if (cvss >= 7) return '#f97316';
+      if (cvss >= 4) return '#eab308';
+      return '#60a5fa';
+    },
+
+    renderGraph() {
+      if (!this._canvas) return;
+      this.graphLoading = true;
+      if (this._sim) { this._sim.stop(); this._sim = null; }
+
+      const all = window._shodanifyGraphRecords || [];
+      const W = this._canvas.offsetWidth || 800;
+      const H = this._canvas.offsetHeight || 640;
+
+      // ── 1. Filter host records ─────────────────────────────────────────────
+      let filtered = all;
+      if (this.gf.minCvss > 0) filtered = filtered.filter(r => (r.max_cvss||0) >= this.gf.minCvss);
+      if (this.gf.cveFilter) {
+        const cv = this.gf.cveFilter.toUpperCase();
+        filtered = filtered.filter(r => (r.cves||[]).some(c => c.toUpperCase().includes(cv)));
+      }
+      // Sort most critical first so cap keeps interesting hosts
+      filtered = [...filtered].sort((a,b) => (b.max_cvss||0) - (a.max_cvss||0));
+
+      // ── 2. Build hub groupings ─────────────────────────────────────────────
+      const cveMode = this.gf.groupBy === 'cve';
+      const hubMap = {}; // label → [records]
+
+      if (cveMode) {
+        // Top CVEs by affected-host count within the filtered set
+        const cveCounts = {};
+        for (const r of filtered) for (const c of (r.cves||[])) cveCounts[c] = (cveCounts[c]||0)+1;
+        const topCves = Object.entries(cveCounts).sort((a,b)=>b[1]-a[1]).slice(0,15).map(([c])=>c);
+        for (const cve of topCves) hubMap[cve] = filtered.filter(r => (r.cves||[]).includes(cve));
+      } else {
+        const key = r => {
+          if (this.gf.groupBy === 'org') return r.org || r.isp || 'Unknown';
+          if (this.gf.groupBy === 'subnet') return r.ip_str.split('.').slice(0,3).join('.')+'.x';
+          return r.country_name || r.country_code || 'Unknown';
+        };
+        for (const r of filtered) (hubMap[key(r)] = hubMap[key(r)]||[]).push(r);
+
+        // Optional group name filter
+        if (this.gf.orgFilter) {
+          const og = this.gf.orgFilter.toLowerCase();
+          for (const k of Object.keys(hubMap)) if (!k.toLowerCase().includes(og)) delete hubMap[k];
+        }
+
+        // Cap to top 20 hubs; remainder → "Other (N)"
+        const sorted = Object.entries(hubMap).sort((a,b) => b[1].length - a[1].length);
+        if (sorted.length > 20) {
+          const rest = sorted.slice(20).flatMap(([,recs]) => recs);
+          for (const [k] of sorted.slice(20)) delete hubMap[k];
+          if (rest.length) hubMap[`Other (${rest.length})`] = rest;
+        }
+      }
+
+      // ── 3. Build hub nodes ─────────────────────────────────────────────────
+      const hubLabels = Object.keys(hubMap);
+      const hubNodes = hubLabels.map((label, i) => ({
+        id: 'hub:'+label, type: 'hub', label,
+        count: hubMap[label].length,
+        color: this._palette[i % this._palette.length],
+        r: Math.max(22, Math.min(50, 20 + Math.sqrt(hubMap[label].length) * 2.8)),
+        x: W/2 + (Math.random()-0.5)*W*0.4,
+        y: H/2 + (Math.random()-0.5)*H*0.4,
+      }));
+      const hubByLabel = Object.fromEntries(hubNodes.map(h => [h.label, h]));
+
+      // ── 4. Build leaf nodes (deduped) and edges ────────────────────────────
+      const leafSet  = new Set();
+      const leafById = {};
+      const linkPairs = []; // { hubLabel, leafId }
+
+      const addLeaf = (r, hub) => {
+        const lid = r.ip_str+':'+r.port;
+        if (!leafSet.has(lid)) {
+          leafSet.add(lid);
+          const leaf = {
+            id: lid, type: 'leaf',
+            ip: r.ip_str, port: r.port,
+            org: r.org || r.isp || '—',
+            cvss: r.max_cvss||0, cves: r.vulns_count||0,
+            hubColor: hub.color,
+            color: this.gf.leafColor === 'group' ? hub.color : this._sev(r.max_cvss),
+            r: Math.max(4, Math.min(12, 4 + (r.vulns_count||0)*0.45)),
+            x: hub.x + (Math.random()-0.5)*80,
+            y: hub.y + (Math.random()-0.5)*80,
+          };
+          leafById[lid] = leaf;
+        }
+        linkPairs.push({ hubLabel: hub.label, leafId: lid });
+      };
+
+      for (const [label, recs] of Object.entries(hubMap)) {
+        const hub = hubByLabel[label];
+        // Respect maxHosts cap across all groups combined
+        for (const r of recs) {
+          if (leafSet.size >= this.gf.maxHosts && !leafSet.has(r.ip_str+':'+r.port)) continue;
+          addLeaf(r, hub);
+        }
+      }
+
+      const leafNodes = Object.values(leafById);
+      const allowedLeafIds = new Set(leafNodes.map(n => n.id));
+      const links = linkPairs
+        .filter(p => allowedLeafIds.has(p.leafId) && hubByLabel[p.hubLabel])
+        .map(p => ({ source: hubByLabel[p.hubLabel], target: leafById[p.leafId] }));
+
+      const nodes = [...hubNodes, ...leafNodes];
+      this._nodes = nodes;
+      this._links = links;
+      this.graphNodeCount = leafNodes.length;
+      this.graphHubCount  = hubNodes.length;
+      this.graphEdgeCount = links.length;
+      this._colorLegend   = hubNodes.slice(0,16).map(h => ({ color: h.color, label: h.label, count: h.count }));
+
+      if (!nodes.length) { this.graphLoading = false; this._draw(); return; }
+
+      // ── 5. Force simulation ────────────────────────────────────────────────
+      this._sim = d3.forceSimulation(nodes)
+        .force('link',      d3.forceLink(links).id(d=>d.id).distance(d => d.source.r + d.target.r + 30).strength(0.65))
+        .force('charge',    d3.forceManyBody().strength(d => d.type==='hub' ? -600 : -20))
+        .force('center',    d3.forceCenter(W/2, H/2).strength(0.04))
+        .force('collision', d3.forceCollide().radius(d => d.r + (d.type==='hub' ? 18 : 4)))
+        .on('tick', () => { this._draw(); })
+        .on('end',  () => { this.graphLoading = false; this.fitGraph(); });
+
+      setTimeout(() => { if (this._sim) { this._sim.stop(); this.graphLoading = false; this.fitGraph(); } }, 5000);
+    },
+
+    _draw() {
+      if (!this._ctx || !this._canvas) return;
+      const W = this._canvas.offsetWidth, H = this._canvas.offsetHeight;
+      const ctx = this._ctx, t = this._transform;
+
+      ctx.save();
+      ctx.clearRect(0, 0, W, H);
+      ctx.translate(t.x, t.y);
+      ctx.scale(t.k, t.k);
+
+      // ── Edges (hub → leaf) ──────────────────────────────────────────────
+      ctx.globalAlpha = 0.28;
+      ctx.lineWidth = 1.2 / t.k;
+      for (const l of this._links) {
+        if (!isFinite(l.source.x) || !isFinite(l.target.x)) continue;
+        ctx.strokeStyle = l.source.color;
+        ctx.beginPath();
+        ctx.moveTo(l.source.x, l.source.y);
+        ctx.lineTo(l.target.x, l.target.y);
+        ctx.stroke();
+      }
+
+      // ── Leaf nodes ──────────────────────────────────────────────────────
+      ctx.globalAlpha = 0.88;
+      for (const n of this._nodes) {
+        if (n.type !== 'leaf' || !isFinite(n.x)) continue;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r, 0, Math.PI*2);
+        ctx.fillStyle = n.color;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(15,23,42,0.55)';
+        ctx.lineWidth = 0.7 / t.k;
+        ctx.stroke();
+      }
+
+      // ── Hub nodes (drawn on top) ─────────────────────────────────────────
+      ctx.globalAlpha = 1;
+      for (const n of this._nodes) {
+        if (n.type !== 'hub' || !isFinite(n.x)) continue;
+
+        // Glow ring
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r + 4/t.k, 0, Math.PI*2);
+        ctx.fillStyle = n.color + '18';
+        ctx.fill();
+
+        // Fill
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r, 0, Math.PI*2);
+        ctx.fillStyle = n.color + '28';
+        ctx.fill();
+
+        // Border
+        ctx.strokeStyle = n.color;
+        ctx.lineWidth = 2 / t.k;
+        ctx.stroke();
+
+        // Label (only if legible at current zoom level)
+        if (this.gf.showLabels) {
+          const pxR = n.r * t.k; // screen-space radius
+          if (pxR > 10) {
+            const maxW = n.r * 1.8;
+            const fs = Math.min(13, Math.max(7, n.r * 0.42));
+            ctx.font = `600 ${fs}px ui-sans-serif,system-ui,sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Truncate label to fit
+            let lbl = n.label;
+            while (lbl.length > 2 && ctx.measureText(lbl).width > maxW) lbl = lbl.slice(0,-1);
+            if (lbl !== n.label) lbl = lbl.slice(0,-1) + '…';
+
+            // Shadow for readability
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.shadowBlur = 3;
+            ctx.fillStyle = '#f1f5f9';
+            ctx.globalAlpha = 0.95;
+            const yOff = pxR > 25 ? -fs*0.45 : 0;
+            ctx.fillText(lbl, n.x, n.y + yOff);
+
+            // Host count below label (only when hub is large enough on screen)
+            if (pxR > 28) {
+              const cfs = Math.max(6, fs * 0.75);
+              ctx.font = `${cfs}px ui-sans-serif,system-ui,sans-serif`;
+              ctx.fillStyle = n.color;
+              ctx.fillText(n.count + ' hosts', n.x, n.y + fs*0.55);
+            }
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 1;
+          }
+        }
+      }
+
+      ctx.restore();
+    },
+
+    _hitNode(cx, cy) {
+      const t = this._transform;
+      const wx = (cx - t.x) / t.k, wy = (cy - t.y) / t.k;
+      // Check hubs first (they're on top)
+      for (const n of this._nodes) {
+        if (n.type !== 'hub') continue;
+        const dx = wx-n.x, dy = wy-n.y;
+        if (dx*dx + dy*dy <= (n.r+6)*(n.r+6)) return n;
+      }
+      for (const n of this._nodes) {
+        if (n.type !== 'leaf') continue;
+        const dx = wx-n.x, dy = wy-n.y;
+        if (dx*dx + dy*dy <= (n.r+3)*(n.r+3)) return n;
+      }
+      return null;
+    },
+
+    _onMove(e) {
+      const rect = this._canvas.getBoundingClientRect();
+      const n = this._hitNode(e.clientX-rect.left, e.clientY-rect.top);
+      if (n) {
+        this.tooltip = n.type === 'hub'
+          ? { visible:true, type:'hub',  x:e.clientX-rect.left, y:e.clientY-rect.top, label:n.label, sub:'', cvss:0, cves:0, count:n.count }
+          : { visible:true, type:'leaf', x:e.clientX-rect.left, y:e.clientY-rect.top, label:n.ip+':'+n.port, sub:n.org, cvss:n.cvss, cves:n.cves, count:0 };
+        this._canvas.style.cursor = 'pointer';
+      } else {
+        this.tooltip.visible = false;
+        this._canvas.style.cursor = 'grab';
+      }
+    },
+
+    _onClick(e) {
+      const rect = this._canvas.getBoundingClientRect();
+      const n = this._hitNode(e.clientX-rect.left, e.clientY-rect.top);
+      if (n && n.type === 'leaf') window._shodanifyOpenHost && window._shodanifyOpenHost(n.ip, n.port);
     },
   };
 }

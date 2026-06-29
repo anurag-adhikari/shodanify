@@ -9,3 +9,8 @@ venv/
 data/
 *.json.gz
 *.json
+
+
+# Added by cargo
+
+/target
