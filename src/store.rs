@@ -3,6 +3,7 @@ use crate::stats::compute_stats_full;
 use flate2::read::GzDecoder;
 use rayon::prelude::*;
 use serde_json::{json, Value};
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
@@ -16,12 +17,11 @@ type RecordKey = (String, i64);
 pub struct DataStore {
     pub records: Vec<Value>,
     pub index: HashMap<RecordKey, usize>,
-    pub duplicate_groups: HashMap<RecordKey, Vec<Value>>,
     pub duplicates_removed: usize,
     pub parse_errors: usize,
     pub files_loaded: usize,
     pub cve_count: usize,
-    // Precomputed at startup — cheap Arc clone, no serialisation on each request
+    // Precomputed at startup — cheap Arc clone, no serialisation on each request.
     summaries: Arc<Vec<Value>>,
     stats: Arc<Value>,
     duplicates_data: Arc<Value>,
@@ -38,7 +38,6 @@ fn cli_ok(label: &str, detail: &str) {
 }
 
 impl DataStore {
-    /// Called from main — same as load() but prints verbose progress to stderr.
     pub fn load_verbose(data_dir: &Path) -> Self {
         Self::load_inner(data_dir, true)
     }
@@ -72,13 +71,14 @@ impl DataStore {
             })
             .collect();
 
+        // Move records out of file_results — no cloning per record.
         let mut raw: Vec<Value> = Vec::new();
         let mut parse_errors = 0usize;
-        for (records, errors, name, ms) in &file_results {
+        for (records, errors, name, ms) in file_results {
             if verbose {
                 cli_step("📄", &format!("\x1b[38;5;245m{name}\x1b[0m  \x1b[38;5;208m{}\x1b[0m\x1b[38;5;245m records  ({ms} ms)\x1b[0m", records.len()));
             }
-            raw.extend(records.clone());
+            raw.extend(records); // moved, not cloned
             parse_errors += errors;
         }
         if parse_errors > 0 {
@@ -90,35 +90,54 @@ impl DataStore {
                 &format!("\x1b[38;5;208m{}\x1b[0m\x1b[38;5;245m raw records  ({:.2?})\x1b[0m", raw.len(), t0.elapsed()));
         }
 
-        // ── 3. Deduplicate by (ip_str, port) keeping newest ───────────────
+        // ── 3. Single-pass dedup by (ip_str, port), keeping newest ────────
+        // For each key we track the current best and any losers (needed for the
+        // duplicates report). Most keys have no duplicates so the losers Vec is
+        // never allocated for them.
         let t1 = std::time::Instant::now();
-        let mut groups: HashMap<RecordKey, Vec<Value>> = HashMap::with_capacity(raw.len());
+        let mut best: HashMap<RecordKey, Value> = HashMap::with_capacity(raw.len());
+        // dup_losers holds every record that was beaten, keyed the same way.
+        let mut dup_losers: HashMap<RecordKey, Vec<Value>> = HashMap::new();
+
         for r in raw {
-            let ip = r.get("ip_str").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let ip   = r.get("ip_str").and_then(|v| v.as_str()).unwrap_or("").to_string();
             let port = r.get("port").and_then(|v| v.as_i64()).unwrap_or(0);
-            groups.entry((ip, port)).or_default().push(r);
+            let key  = (ip, port);
+
+            match best.entry(key) {
+                Entry::Vacant(e) => { e.insert(r); }
+                Entry::Occupied(mut e) => {
+                    let ta = r.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+                    let tb = e.get().get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+                    let loser = if ta > tb {
+                        std::mem::replace(e.get_mut(), r)
+                    } else { r };
+                    let dup_key = e.key().clone();
+                    dup_losers.entry(dup_key).or_default().push(loser);
+                }
+            }
         }
 
-        let mut index: HashMap<RecordKey, usize> = HashMap::with_capacity(groups.len());
-        let mut records: Vec<Value> = Vec::with_capacity(groups.len());
+        let duplicates_removed: usize = dup_losers.values().map(|v| v.len()).sum();
 
-        for (key, occ) in &groups {
-            let best = occ.iter().max_by(|a, b| {
-                let ta = a.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
-                let tb = b.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
-                ta.cmp(tb)
-            }).unwrap();
-            let idx = records.len();
-            records.push(best.clone());
-            index.insert(key.clone(), idx);
+        // Build index and records from the best map (order is arbitrary but stable
+        // within a single load; the UI sorts client-side anyway).
+        let mut records: Vec<Value> = Vec::with_capacity(best.len());
+        let mut index: HashMap<RecordKey, usize> = HashMap::with_capacity(best.len());
+        for (key, rec) in &best {
+            index.insert(key.clone(), records.len());
+            records.push(rec.clone());
         }
 
-        let total_before: usize = groups.values().map(|v| v.len()).sum();
-        let duplicates_removed = total_before - records.len();
-        let duplicate_groups: HashMap<RecordKey, Vec<Value>> = groups
-            .into_iter()
-            .filter(|(_, v)| v.len() > 1)
-            .collect();
+        // Build the full duplicate groups (winner + losers) for the report.
+        // Only keys that actually have losers appear here.
+        let mut dup_groups: HashMap<RecordKey, Vec<Value>> = HashMap::with_capacity(dup_losers.len());
+        for (key, mut losers) in dup_losers {
+            if let Some(winner) = best.get(&key) {
+                losers.push(winner.clone());
+            }
+            dup_groups.insert(key, losers);
+        }
 
         if verbose {
             cli_ok("Deduplication",
@@ -133,20 +152,19 @@ impl DataStore {
             || records.par_iter().map(|r| record_summary(r)).collect::<Vec<Value>>(),
             || rayon::join(
                 || compute_stats_full(&records, duplicates_removed),
-                || build_duplicates(&duplicate_groups, duplicates_removed),
+                || build_duplicates(&dup_groups, duplicates_removed),
             ),
         );
         let cve_count = stats.get("vulns").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
         if verbose {
             cli_ok("Pre-compute complete",
                 &format!("\x1b[38;5;208m{}\x1b[0m\x1b[38;5;245m summaries · \x1b[0m\x1b[38;5;208m{cve_count}\x1b[0m\x1b[38;5;245m CVEs · \x1b[0m\x1b[38;5;208m{}\x1b[0m\x1b[38;5;245m dup groups  ({:.2?})\x1b[0m",
-                    summaries.len(), duplicate_groups.len(), t2.elapsed()));
+                    summaries.len(), dup_groups.len(), t2.elapsed()));
         }
 
         DataStore {
             records,
             index,
-            duplicate_groups,
             duplicates_removed,
             parse_errors,
             files_loaded,
@@ -162,17 +180,17 @@ impl DataStore {
     }
 
     pub fn summaries(&self) -> Arc<Vec<Value>> { self.summaries.clone() }
-    pub fn stats(&self) -> Arc<Value> { self.stats.clone() }
-    pub fn duplicates(&self) -> Arc<Value> { self.duplicates_data.clone() }
+    pub fn stats(&self)     -> Arc<Value>       { self.stats.clone() }
+    pub fn duplicates(&self)-> Arc<Value>       { self.duplicates_data.clone() }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 fn build_duplicates(
-    duplicate_groups: &HashMap<RecordKey, Vec<Value>>,
+    dup_groups: &HashMap<RecordKey, Vec<Value>>,
     duplicates_removed: usize,
 ) -> Value {
-    let mut groups: Vec<Value> = duplicate_groups.iter().map(|((ip_str, port), occ)| {
+    let mut groups: Vec<Value> = dup_groups.iter().map(|((ip_str, port), occ)| {
         let kept = occ.iter().max_by(|a, b| {
             let ta = a.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
             let tb = b.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
@@ -221,7 +239,7 @@ fn build_duplicates(
 
     json!({
         "groups": groups,
-        "group_count": duplicate_groups.len(),
+        "group_count": dup_groups.len(),
         "duplicates_removed": duplicates_removed,
     })
 }

@@ -1,3 +1,4 @@
+use crate::activity::ActivityLog;
 use crate::parsing::INFRA_DOMAINS;
 use crate::scan_store::ScanStore;
 use crate::scanner::scan_targets;
@@ -21,6 +22,7 @@ pub struct AppState {
     pub scan_store: Arc<ScanStore>,
     pub config: Arc<crate::config::Config>,
     pub template_path: PathBuf,
+    pub activity: ActivityLog,
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -152,9 +154,12 @@ async fn api_scan(
     let read_timeout = Duration::from_secs_f64(state.config.scan_read_timeout_secs);
     let workers = state.config.scan_workers;
 
+    let n = targets.len();
+    let act_id = state.activity.start("Scan", format!("scanning {} target{}", n, if n == 1 { "" } else { "s" }));
     let results = scan_targets(targets, workers, connect_timeout, read_timeout).await;
     let stored = state.scan_store.record(results);
     let scanned = stored.len();
+    state.activity.finish(act_id, format!("{}/{} responded", scanned, n));
 
     Json(json!({
         "results": stored,
@@ -167,18 +172,42 @@ async fn api_hosts(
     State(state): State<AppState>,
     Json(params): Json<crate::filter::FilterParams>,
 ) -> impl IntoResponse {
+    // Build a short description of active filters for the activity log.
+    let desc = filter_desc(&params);
+    let act_id = desc.as_ref().map(|d| state.activity.start("Filter", d.clone()));
+
     let store = state.store.read().await;
     let summaries = store.summaries();
     let total = summaries.len();
     let result = crate::filter::apply(&summaries, &params, total);
     drop(store);
+
+    if let Some(id) = act_id {
+        state.activity.finish(id, format!("{} matched", result.filtered_total));
+    }
     Json(result)
+}
+
+fn filter_desc(p: &crate::filter::FilterParams) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(ref s) = p.search { if !s.trim().is_empty() { parts.push(format!("\"{}\"", s.trim())); } }
+    if let Some(port) = p.port { parts.push(format!("port={}", port)); }
+    if let Some(ref c) = p.country { if !c.is_empty() { parts.push(format!("country={}", c)); } }
+    if let Some(ref s) = p.severity { if !s.is_empty() { parts.push(format!("severity={}", s)); } }
+    if p.has_cve       { parts.push("has_cve".into()); }
+    if p.verified_cve  { parts.push("verified_cve".into()); }
+    if p.has_ssl       { parts.push("has_ssl".into()); }
+    if p.ssl_expired   { parts.push("ssl_expired".into()); }
+    for f in &p.facets { parts.push(format!("{}={}", f.kind, f.value)); }
+    if parts.is_empty() { return None; }
+    Some(parts.join(", "))
 }
 
 async fn api_report(
     State(state): State<AppState>,
     Json(config): Json<crate::report::ReportConfig>,
 ) -> impl IntoResponse {
+    let act_id = state.activity.start("Report", "generating report".into());
     let store = state.store.read().await;
     let html = crate::report::generate(
         &config,
@@ -191,6 +220,7 @@ async fn api_report(
     let date = chrono::Utc::now().format("%Y-%m-%d");
     let filename = format!("shodanify-report-{date}.html");
 
+    state.activity.finish(act_id, format!("{} generated", filename));
     let mut headers = HeaderMap::new();
     headers.insert("Content-Type", HeaderValue::from_static("text/html; charset=utf-8"));
     headers.insert(
@@ -201,6 +231,7 @@ async fn api_report(
 }
 
 async fn api_reload(State(state): State<AppState>) -> Json<Value> {
+    let act_id = state.activity.start("Reload", "reloading data".into());
     let data_dir = state.config.data_dir.clone();
     let new_store = tokio::task::spawn_blocking(move || {
         crate::store::DataStore::load(&data_dir)
@@ -212,6 +243,7 @@ async fn api_reload(State(state): State<AppState>) -> Json<Value> {
     let errors = new_store.parse_errors;
 
     *state.store.write().await = new_store;
+    state.activity.finish(act_id, format!("{} records, {} files", count, files_loaded));
 
     Json(json!({
         "status": "ok",

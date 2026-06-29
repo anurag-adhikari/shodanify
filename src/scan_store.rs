@@ -55,48 +55,54 @@ impl ScanStore {
     }
 
     pub fn record(&self, results: Vec<Value>) -> Vec<Value> {
-        let mut data = self.data.lock();
-        let mut out = Vec::new();
+        // Build updated entries and take a snapshot for persistence, all while
+        // holding the lock. Then release the lock before doing any I/O so other
+        // requests aren't blocked on filesystem writes.
+        let (out, snapshot) = {
+            let mut data = self.data.lock();
+            let mut out = Vec::with_capacity(results.len());
 
-        for r in results {
-            let ip = r.get("ip").and_then(|v| v.as_str()).unwrap_or("");
-            let port = r.get("port").and_then(|v| v.as_i64()).unwrap_or(0);
-            let key = format!("{}:{}", ip, port);
+            for r in results {
+                let ip   = r.get("ip").and_then(|v| v.as_str()).unwrap_or("");
+                let port = r.get("port").and_then(|v| v.as_i64()).unwrap_or(0);
+                let key  = format!("{}:{}", ip, port);
 
-            let prev = data.get(&key).cloned().unwrap_or(json!({}));
-            let mut history = prev.get("history")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default();
+                let prev = data.get(&key).cloned().unwrap_or(json!({}));
+                let mut history = prev.get("history")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
 
-            let hist_entry = json!({
-                "scanned_at": r.get("scanned_at"),
-                "http_status": r.get("http_status"),
-                "http_ok": r.get("http_ok"),
-                "tcp_open": r.get("tcp_open"),
-                "http_ms": r.get("http_ms"),
-            });
+                history.insert(0, json!({
+                    "scanned_at": r.get("scanned_at"),
+                    "http_status": r.get("http_status"),
+                    "http_ok": r.get("http_ok"),
+                    "tcp_open": r.get("tcp_open"),
+                    "http_ms": r.get("http_ms"),
+                }));
+                history.truncate(HISTORY_LIMIT);
 
-            history.insert(0, hist_entry);
-            history.truncate(HISTORY_LIMIT);
+                let first_seen = prev.get("first_seen")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| r.get("scanned_at").and_then(|v| v.as_str()))
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
 
-            let first_seen = prev.get("first_seen")
-                .and_then(|v| v.as_str())
-                .or_else(|| r.get("scanned_at").and_then(|v| v.as_str()))
-                .map(|s| s.to_string())
-                .unwrap_or_default();
+                let mut entry = r;
+                if let Some(obj) = entry.as_object_mut() {
+                    obj.insert("history".to_string(), Value::Array(history));
+                    obj.insert("first_seen".to_string(), Value::String(first_seen));
+                }
 
-            let mut entry = r.clone();
-            if let Some(obj) = entry.as_object_mut() {
-                obj.insert("history".to_string(), Value::Array(history));
-                obj.insert("first_seen".to_string(), Value::String(first_seen));
+                data.insert(key, entry.clone());
+                out.push(entry);
             }
 
-            data.insert(key, entry.clone());
-            out.push(entry);
-        }
+            let snapshot = data.clone(); // clone while lock is held; cheap for typical scan sizes
+            (out, snapshot)
+        }; // mutex released here, before any I/O
 
-        self.write_file(&data);
+        self.write_file(&snapshot);
         out
     }
 }

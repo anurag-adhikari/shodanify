@@ -1,3 +1,4 @@
+mod activity;
 mod config;
 mod filter;
 mod parsing;
@@ -8,6 +9,7 @@ mod scanner;
 mod stats;
 mod store;
 
+use activity::ActivityLog;
 use config::Config;
 use routes::{AppState, build_router};
 use scan_store::ScanStore;
@@ -28,6 +30,60 @@ const YELLOW: &str = "\x1b[38;5;226m";
 const RED:    &str = "\x1b[38;5;196m";
 const GREY:   &str = "\x1b[38;5;245m";
 const WHITE:  &str = "\x1b[38;5;255m";
+
+// ── Live activity display ─────────────────────────────────────────────────────
+
+const BLOCK_LINES: usize = 9; // header(1) + sep(1) + 5 rows + blank(1) + footer(1)
+const SPINNER: [char; 4] = ['⠋', '⠙', '⠴', '⠦'];
+
+async fn activity_display_loop(log: ActivityLog) {
+    let mut printed = false;
+    let mut tick: usize = 0;
+    loop {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let entries = log.recent(5);
+        if entries.is_empty() && !printed { continue; }
+
+        let spin = SPINNER[tick % SPINNER.len()];
+        tick += 1;
+
+        // Move cursor up to overwrite the previous block.
+        if printed {
+            eprint!("\x1b[{}A\x1b[0J", BLOCK_LINES);
+        }
+
+        eprintln!("  {GREY}│{RESET}");
+        eprintln!("  {GREY}│  {DIM}Activity{RESET}");
+        eprintln!("  {GREY}│  ─────────────────────────────────────────────────────────────{RESET}");
+
+        // Pad to always have 5 rows so block height is constant.
+        let pad = 5usize.saturating_sub(entries.len());
+        for _ in 0..pad {
+            eprintln!("  {GREY}│{RESET}");
+        }
+        for a in &entries {
+            let (icon, detail) = match &a.status {
+                activity::Status::Running => (
+                    format!("{CYAN}{spin}{RESET}"),
+                    format!("{WHITE}{}…{RESET}  {DIM}{}{RESET}", a.description, a.elapsed_str()),
+                ),
+                activity::Status::Done(result) => (
+                    format!("{GREEN}✓{RESET}"),
+                    format!("{GREY}{}{RESET}  {DIM}{}{RESET}", result, a.elapsed_str()),
+                ),
+            };
+            let kind_w = format!("{ORANGE}{:<7}{RESET}", a.kind);
+            eprintln!("  {GREY}│{RESET}  {icon}  {DIM}{}{RESET}  {kind_w}  {detail}", a.time);
+        }
+
+        eprintln!("  {GREY}│{RESET}");
+        eprint!("  {GREY}╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌{RESET}");
+
+        printed = true;
+    }
+}
+
+// ── Startup helpers ───────────────────────────────────────────────────────────
 
 fn step(icon: &str, label: &str) {
     eprintln!("  {GREY}│{RESET}  {icon}  {WHITE}{label}{RESET}");
@@ -111,12 +167,18 @@ async fn main() {
     eprintln!("  {GREY}│{RESET}");
 
     // ── Build server ───────────────────────────────────────────────────────
+    let activity = ActivityLog::new();
+
     let state = AppState {
         store: Arc::new(RwLock::new(data_store)),
         scan_store: Arc::new(scan_store),
         config: Arc::new(config.clone()),
         template_path,
+        activity: activity.clone(),
     };
+
+    // Spawn background task that refreshes the live activity block on stderr.
+    tokio::spawn(activity_display_loop(activity));
 
     let mut app = build_router(state);
 
