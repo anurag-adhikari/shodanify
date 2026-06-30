@@ -1,16 +1,15 @@
+# Rust
+/target
+
+# OS
 .DS_Store
-.pytest_cache/
-__pycache__/
-*.pyc
-*.pyo
-.env
-venv/
-.venv/
+Thumbs.db
+
+# Shodan data & scan artifacts (never commit real export data)
 data/
 *.json.gz
-*.json
+.scan_results.json
+server.log
 
-
-# Added by cargo
-
-/target
+# Env
+.env

@@ -15,18 +15,34 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        let data_dir = PathBuf::from(env::var("DATA_DIR").unwrap_or_else(|_| "data".into()));
+        let data_dir = env::var("DATA_DIR").map(PathBuf::from).unwrap_or_else(|_| {
+            // Prefer a "data" folder next to the running executable so the app
+            // works regardless of the current working directory (e.g. on Windows
+            // where double-clicking an exe sets CWD to the exe's own directory).
+            // Fall back to a CWD-relative "data" if neither exists.
+            let cwd_data = PathBuf::from("data");
+            let exe_data = env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.join("data")));
+            if cwd_data.exists() {
+                cwd_data
+            } else if let Some(p) = exe_data.filter(|p| p.exists()) {
+                p
+            } else {
+                cwd_data
+            }
+        });
         let scan_store = PathBuf::from(
             env::var("SCAN_STORE")
                 .unwrap_or_else(|_| data_dir.join(".scan_results.json").to_string_lossy().into_owned()),
         );
         Config {
             data_dir,
-            host: env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into()),
+            host: env::var("HOST").unwrap_or_else(|_| "127.0.0.1".into()),
             port: env::var("PORT")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(5000),
+                .unwrap_or(8080),
             scan_store,
             scan_workers: env::var("SCAN_WORKERS")
                 .ok()
@@ -43,7 +59,7 @@ impl Default for Config {
             scan_max_targets: env::var("SCAN_MAX_TARGETS")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(300),
+                .unwrap_or(10_000),
         }
     }
 }

@@ -1,14 +1,9 @@
 #!/bin/bash
 # Run Shodanify (Rust backend)
-# Usage: ./run.sh [--release] [--python]
+# Usage: ./run.sh [--release]
 set -e
 
 cd "$(dirname "$0")"
-
-if [[ "$1" == "--python" ]]; then
-    echo "Starting Python backend..."
-    exec python3 app.py
-fi
 
 if [[ ! -f "target/release/shodanify" ]]; then
     echo "Building release binary..."

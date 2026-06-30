@@ -607,7 +607,7 @@ pub fn generate(
                 let rows: String = infra.iter().take(200).map(|r| {
                     let ip = r.get("ip_str").and_then(|v| v.as_str()).unwrap_or("");
                     let port = r.get("port").and_then(|v| v.as_i64()).unwrap_or(0);
-                    let host = r.get("hostname").and_then(|v| v.as_str()).unwrap_or("");
+                    let host = r.get("hostnames").and_then(|v| v.as_array()).and_then(|a| a.first()).and_then(|v| v.as_str()).unwrap_or("");
                     let org = r.get("org").and_then(|v| v.as_str()).or_else(|| r.get("isp").and_then(|v| v.as_str())).unwrap_or("—");
                     let cves = r.get("vulns_count").and_then(|v| v.as_i64()).unwrap_or(0);
                     let cvss = r.get("max_cvss").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -642,7 +642,7 @@ pub fn generate(
                 let rows: String = sorted.iter().take(500).map(|r| {
                     let ip = r.get("ip_str").and_then(|v| v.as_str()).unwrap_or("");
                     let port = r.get("port").and_then(|v| v.as_i64()).unwrap_or(0);
-                    let hostname = r.get("hostname").and_then(|v| v.as_str()).unwrap_or("");
+                    let hostname = r.get("hostnames").and_then(|v| v.as_array()).and_then(|a| a.first()).and_then(|v| v.as_str()).unwrap_or("");
                     let org = r.get("org").and_then(|v| v.as_str()).or_else(|| r.get("isp").and_then(|v| v.as_str())).unwrap_or("—");
                     let country = r.get("country_name").and_then(|v| v.as_str()).or_else(|| r.get("country_code").and_then(|v| v.as_str())).unwrap_or("—");
                     let cves = r.get("vulns_count").and_then(|v| v.as_i64()).unwrap_or(0);

@@ -3,40 +3,58 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Shodanify</title>
+  <title>Shodanify — Shodan Export Viewer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.14.8/dist/cdn.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
   <style>
+    :root { --accent: #f97316; --accent-dim: rgba(249,115,22,0.12); --accent-border: rgba(249,115,22,0.3); }
+    * { transition-timing-function: cubic-bezier(0.4,0,0.2,1); }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
     [x-cloak] { display: none !important; }
     ::-webkit-scrollbar { width: 5px; height: 5px; }
-    ::-webkit-scrollbar-track { background: #0f172a; }
-    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #475569; }
-    .font-mono { font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace; }
-    .bar-fill { transition: width 0.6s ease; }
+    ::-webkit-scrollbar-track { background: #060b14; }
+    ::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #2d5a8e; }
+    .font-mono { font-family: 'JetBrains Mono','Fira Code',ui-monospace,monospace; }
+    .bar-fill { transition: width 0.7s cubic-bezier(0.4,0,0.2,1); }
     .tag-badge { display: inline-flex; align-items: center; gap: 2px; padding: 1px 6px; border-radius: 9999px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
-    .glow-orange { box-shadow: 0 0 20px rgba(249,115,22,0.15); }
+    .glow-orange { box-shadow: 0 0 24px rgba(249,115,22,0.18), 0 0 8px rgba(249,115,22,0.1); }
+    .glow-card { box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04); }
     .row-hover:hover { background-color: rgba(30,41,59,0.8) !important; cursor: pointer; }
-    .modal-enter { animation: modalIn 0.18s ease-out; }
-    @keyframes modalIn { from { opacity: 0; transform: scale(0.97) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+    .modal-enter { animation: modalIn 0.2s cubic-bezier(0.34,1.56,0.64,1); }
+    @keyframes modalIn { from { opacity:0; transform:scale(0.95) translateY(12px); } to { opacity:1; transform:scale(1) translateY(0); } }
+    @keyframes radarSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes pulse-ring { 0%,100% { opacity:0.6; transform:scale(1); } 50% { opacity:0.2; transform:scale(1.15); } }
+    @keyframes slideIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
+    .radar-spin { animation: radarSpin 3s linear infinite; transform-origin: center; }
+    .pulse-ring { animation: pulse-ring 2.5s ease-in-out infinite; }
+    .slide-in { animation: slideIn 0.25s ease-out; }
+    .tab-icon { transition: color 0.15s, transform 0.15s; }
+    button:active { transform: scale(0.97); }
+    .stat-card { transition: box-shadow 0.2s, border-color 0.2s; }
+    .stat-card:hover { border-color: rgba(249,115,22,0.2) !important; box-shadow: 0 0 0 1px rgba(249,115,22,0.08), 0 4px 16px rgba(0,0,0,0.3); }
+    /* Dot-grid background */
+    .dot-bg { background-image: radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px); background-size: 24px 24px; }
   </style>
   <script>
     tailwind.config = {
-      theme: { extend: { colors: { shodan: '#f97316' } } }
+      theme: { extend: { colors: { shodan: '#f97316' }, fontFamily: { sans: ['Inter','system-ui','sans-serif'] } } }
     }
   </script>
 </head>
 
-<body class="bg-slate-950 text-slate-200 min-h-screen font-mono antialiased">
+<body class="bg-[#070d1a] text-slate-200 min-h-screen antialiased dot-bg">
 
 <div x-data="shodanify()" x-init="init()" x-cloak>
 
   <!-- Filter-busy spinner overlay -->
   <div x-show="_busyFilter" x-transition.opacity style="display:none"
     class="fixed inset-0 bg-slate-950/60 z-[200] flex items-center justify-center pointer-events-none">
-    <div class="bg-slate-800 border border-slate-700 rounded-xl px-6 py-4 flex items-center gap-3 shadow-2xl pointer-events-auto">
+    <div class="bg-[#0a1628]/80 border border-white/[0.08] rounded-xl px-6 py-4 flex items-center gap-3 shadow-2xl pointer-events-auto">
       <svg class="w-5 h-5 text-orange-400 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
@@ -46,29 +64,59 @@
   </div>
 
   <!-- ═══ HEADER ═══════════════════════════════════════════════════════════ -->
-  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40">
-    <div class="max-w-screen-2xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+  <header class="border-b border-white/[0.06] bg-[#0a1628]/90 backdrop-blur-xl sticky top-0 z-40">
+    <div class="max-w-screen-2xl mx-auto px-5 py-0 flex items-center justify-between gap-4 h-14">
+      <!-- Brand -->
       <div class="flex items-center gap-3">
-        <div class="w-8 h-8 rounded-lg bg-orange-500/20 border border-orange-500/40 flex items-center justify-center glow-orange">
-          <svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
-          </svg>
+        <!-- Logo mark: radar rings + sweep -->
+        <div class="relative w-8 h-8 flex items-center justify-center flex-shrink-0">
+          <!-- Outer pulse ring -->
+          <div class="absolute inset-0 rounded-full border border-orange-500/20 pulse-ring"></div>
+          <!-- Icon container -->
+          <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-orange-500/20 to-orange-600/10 border border-orange-500/30 flex items-center justify-center glow-orange">
+            <svg class="w-4 h-4 text-orange-400" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <circle cx="12" cy="12" r="9" stroke-width="1.5" stroke-opacity="0.5"/>
+              <circle cx="12" cy="12" r="5" stroke-width="1.5" stroke-opacity="0.7"/>
+              <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+              <!-- Sweep line -->
+              <line x1="12" y1="12" x2="12" y2="3" stroke-width="2" stroke-linecap="round" class="radar-spin" style="transform-origin:12px 12px"/>
+            </svg>
+          </div>
         </div>
-        <span class="text-lg font-bold tracking-tight text-slate-100">Shodanify</span>
-        <span class="text-slate-600 text-sm">—</span>
-        <span class="text-slate-400 text-sm">Shodan Export Viewer</span>
+        <!-- Wordmark -->
+        <div class="flex items-baseline gap-2">
+          <span class="text-[17px] font-black tracking-tight text-white" style="letter-spacing:-0.5px">Shodanify</span>
+          <span class="hidden sm:block text-[11px] font-medium text-slate-500 border border-slate-700/60 px-1.5 py-0.5 rounded-md bg-slate-800/50 tracking-wide">SHODAN VIEWER</span>
+        </div>
       </div>
-      <div class="flex items-center gap-3">
-        <template x-if="stats">
-          <span class="text-slate-500 text-xs">
-            <span class="text-slate-300" x-text="stats.total_records"></span> records ·
-            <span class="text-slate-300" x-text="stats.unique_ips"></span> IPs
-          </span>
-        </template>
-        <button @click="reload()"
-          :disabled="loading"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition disabled:opacity-50">
+
+      <!-- Centre: live stats pill -->
+      <template x-if="stats">
+        <div class="hidden md:flex items-center gap-px bg-slate-800/60 border border-white/[0.06] rounded-xl overflow-hidden text-xs">
+          <div class="px-3 py-1.5 flex items-center gap-1.5 border-r border-white/[0.06]">
+            <span class="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse"></span>
+            <span class="text-slate-400">Records</span>
+            <span class="font-semibold text-slate-200" x-text="stats.total_records?.toLocaleString()"></span>
+          </div>
+          <div class="px-3 py-1.5 flex items-center gap-1.5 border-r border-white/[0.06]">
+            <span class="text-slate-400">IPs</span>
+            <span class="font-semibold text-slate-200" x-text="stats.unique_ips?.toLocaleString()"></span>
+          </div>
+          <div class="px-3 py-1.5 flex items-center gap-1.5 border-r border-white/[0.06]">
+            <span class="text-red-400/80">CVEs</span>
+            <span class="font-semibold text-slate-200" x-text="stats.unique_cves?.toLocaleString()"></span>
+          </div>
+          <div class="px-3 py-1.5 flex items-center gap-1.5">
+            <span class="text-slate-400">Countries</span>
+            <span class="font-semibold text-slate-200" x-text="stats.unique_countries"></span>
+          </div>
+        </div>
+      </template>
+
+      <!-- Right: actions -->
+      <div class="flex items-center gap-2">
+        <button @click="reload()" :disabled="loading"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800/80 hover:bg-slate-700/80 border border-white/[0.08] hover:border-white/[0.14] text-slate-300 hover:text-white transition-all duration-150 disabled:opacity-40">
           <svg class="w-3.5 h-3.5" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
               d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
@@ -80,25 +128,30 @@
   </header>
 
   <!-- Loading state -->
-  <div x-show="loading" class="fixed inset-0 z-50 bg-slate-950 flex items-center justify-center">
-    <div class="w-[420px] max-w-full px-6">
-      <!-- Logo + title -->
-      <div class="flex items-center gap-3 mb-8">
-        <div class="w-9 h-9 rounded-xl bg-orange-500/20 border border-orange-500/40 flex items-center justify-center">
-          <svg class="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
-          </svg>
+  <div x-show="loading" class="fixed inset-0 z-50 bg-[#070d1a] flex items-center justify-center dot-bg">
+    <div class="w-[400px] max-w-full px-6">
+      <!-- Logo -->
+      <div class="flex items-center gap-4 mb-10">
+        <div class="relative w-12 h-12 flex items-center justify-center flex-shrink-0">
+          <div class="absolute inset-0 rounded-2xl border border-orange-500/20 pulse-ring"></div>
+          <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500/20 to-orange-700/10 border border-orange-500/30 flex items-center justify-center glow-orange">
+            <svg class="w-6 h-6 text-orange-400" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <circle cx="12" cy="12" r="9" stroke-width="1.5" stroke-opacity="0.4"/>
+              <circle cx="12" cy="12" r="5" stroke-width="1.5" stroke-opacity="0.6"/>
+              <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+              <line x1="12" y1="12" x2="12" y2="3" stroke-width="2" stroke-linecap="round" class="radar-spin" style="transform-origin:12px 12px"/>
+            </svg>
+          </div>
         </div>
         <div>
-          <div class="text-lg font-bold text-slate-100">Shodanify</div>
-          <div class="text-xs text-slate-500">Shodan Export Viewer</div>
+          <div class="text-xl font-black text-white tracking-tight" style="letter-spacing:-0.5px">Shodanify</div>
+          <div class="text-xs text-slate-500 font-medium mt-0.5">Initialising data explorer…</div>
         </div>
       </div>
       <!-- Step list -->
-      <div class="space-y-3">
+      <div class="space-y-3.5">
         <template x-for="step in loadingSteps" :key="step.id">
-          <div class="flex items-center gap-3">
-            <!-- Icon: spinning / check / dim circle -->
+          <div class="flex items-center gap-3.5">
             <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
               <template x-if="step.status === 'active'">
                 <svg class="w-4 h-4 text-orange-400 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -107,93 +160,99 @@
                 </svg>
               </template>
               <template x-if="step.status === 'done'">
-                <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
-                </svg>
+                <div class="w-4 h-4 rounded-full bg-green-500/20 border border-green-500/40 flex items-center justify-center">
+                  <svg class="w-2.5 h-2.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+                  </svg>
+                </div>
               </template>
               <template x-if="step.status === 'pending'">
-                <div class="w-3 h-3 rounded-full border border-slate-700"></div>
+                <div class="w-4 h-4 rounded-full border border-slate-700/60"></div>
               </template>
             </div>
-            <span class="text-sm flex-1"
-              :class="step.status === 'done' ? 'text-slate-300' : step.status === 'active' ? 'text-slate-100' : 'text-slate-600'"
+            <span class="text-sm flex-1 font-medium transition-colors duration-300"
+              :class="step.status==='done' ? 'text-slate-400' : step.status==='active' ? 'text-white' : 'text-slate-700'"
               x-text="step.label"></span>
             <span x-show="step.detail" x-text="step.detail"
-              class="text-xs text-slate-500 font-mono"></span>
+              class="text-xs text-slate-500 font-mono tabular-nums"></span>
           </div>
         </template>
+      </div>
+      <!-- Progress bar -->
+      <div class="mt-8 h-0.5 w-full bg-slate-800 rounded-full overflow-hidden">
+        <div class="h-full bg-gradient-to-r from-orange-600 to-orange-400 rounded-full bar-fill"
+          :style="`width:${loadingSteps.filter(s=>s.status==='done').length / Math.max(loadingSteps.length,1) * 100}%`"></div>
       </div>
     </div>
   </div>
 
-  <div class="max-w-screen-2xl mx-auto px-4 py-6">
+  <div class="max-w-screen-2xl mx-auto px-5 py-6">
 
     <!-- ═══ STAT CARDS ═══════════════════════════════════════════════════ -->
     <template x-if="stats">
-      <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 mb-6">
+      <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 mb-6 slide-in">
         <!-- Total Records -->
-        <div class="col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-start gap-3">
-          <div class="p-2 rounded-lg bg-orange-500/10 border border-orange-500/20 mt-0.5 flex-shrink-0">
+        <div class="stat-card col-span-2 bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-4 flex items-start gap-3 glow-card">
+          <div class="p-2.5 rounded-xl bg-orange-500/10 border border-orange-500/20 mt-0.5 flex-shrink-0">
             <svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/>
             </svg>
           </div>
-          <div>
-            <div class="text-2xl font-bold text-slate-100" x-text="stats.total_records"></div>
-            <div class="text-xs text-slate-500 uppercase tracking-wider mt-0.5">Total Records</div>
-            <div class="text-xs text-slate-400 mt-1" x-text="`${stats.unique_ips} unique IPs · ${stats.unique_ports} ports`"></div>
+          <div class="min-w-0">
+            <div class="text-2xl font-black text-white tracking-tight" x-text="stats.total_records?.toLocaleString()"></div>
+            <div class="text-[10px] text-slate-500 font-semibold uppercase tracking-widest mt-0.5">Total Records</div>
+            <div class="text-xs text-slate-400 mt-1.5" x-text="`${stats.unique_ips?.toLocaleString()} IPs · ${stats.unique_ports} ports`"></div>
             <template x-if="stats.duplicates_removed > 0">
-              <div class="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-yellow-950 border border-yellow-800 text-yellow-400 text-[10px] font-semibold">
-                <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                </svg>
-                <span x-text="stats.duplicates_removed + ' duplicate' + (stats.duplicates_removed === 1 ? '' : 's') + ' removed'"></span>
+              <div class="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-yellow-950/60 border border-yellow-800/50 text-yellow-400 text-[10px] font-semibold">
+                <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                <span x-text="stats.duplicates_removed?.toLocaleString() + ' dupes removed'"></span>
               </div>
             </template>
           </div>
         </div>
         <!-- Countries -->
-        <div class="col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-start gap-3">
-          <div class="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 mt-0.5 flex-shrink-0">
+        <div class="stat-card col-span-2 bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-4 flex items-start gap-3 glow-card">
+          <div class="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 mt-0.5 flex-shrink-0">
             <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
           </div>
-          <div>
-            <div class="text-2xl font-bold text-slate-100" x-text="stats.unique_countries"></div>
-            <div class="text-xs text-slate-500 uppercase tracking-wider mt-0.5">Countries</div>
-            <div class="text-xs text-slate-400 mt-1" x-text="stats.top_countries.slice(0,2).map(c => c.name).join(', ')"></div>
+          <div class="min-w-0">
+            <div class="text-2xl font-black text-white tracking-tight" x-text="stats.unique_countries"></div>
+            <div class="text-[10px] text-slate-500 font-semibold uppercase tracking-widest mt-0.5">Countries</div>
+            <div class="text-xs text-slate-400 mt-1.5 truncate" x-text="stats.top_countries.slice(0,3).map(c => c.name).join(' · ')"></div>
           </div>
         </div>
         <!-- CVEs -->
-        <div class="col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-start gap-3">
-          <div class="p-2 rounded-lg bg-red-500/10 border border-red-500/20 mt-0.5 flex-shrink-0">
+        <div class="stat-card col-span-2 bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-4 flex items-start gap-3 glow-card">
+          <div class="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 mt-0.5 flex-shrink-0">
             <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
             </svg>
           </div>
-          <div>
-            <div class="text-2xl font-bold text-slate-100" x-text="stats.unique_cves"></div>
-            <div class="text-xs text-slate-500 uppercase tracking-wider mt-0.5">Unique CVEs</div>
-            <div class="text-xs text-slate-400 mt-1">
-              <span class="text-red-400" x-text="stats.severity.critical"></span> crit ·
-              <span class="text-orange-400" x-text="stats.severity.high"></span> high ·
-              <span class="text-yellow-400" x-text="stats.severity.medium"></span> med
+          <div class="min-w-0">
+            <div class="text-2xl font-black text-white tracking-tight" x-text="stats.unique_cves?.toLocaleString()"></div>
+            <div class="text-[10px] text-slate-500 font-semibold uppercase tracking-widest mt-0.5">Unique CVEs</div>
+            <div class="text-xs mt-1.5 flex items-center gap-2">
+              <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-red-500 inline-block"></span><span class="text-red-400" x-text="stats.severity.critical"></span></span>
+              <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block"></span><span class="text-orange-400" x-text="stats.severity.high"></span></span>
+              <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-yellow-500 inline-block"></span><span class="text-yellow-400" x-text="stats.severity.medium"></span></span>
             </div>
           </div>
         </div>
         <!-- Severity breakdown -->
-        <div class="col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <div class="text-xs text-slate-500 uppercase tracking-wider mb-2">Severity Breakdown</div>
-          <div class="space-y-1.5">
-            <template x-for="[label, color, key] in [['Critical','bg-red-500','critical'],['High','bg-orange-500','high'],['Medium','bg-yellow-500','medium'],['Low','bg-blue-500','low']]">
+        <div class="stat-card col-span-2 bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-4 glow-card">
+          <div class="text-[10px] text-slate-500 font-semibold uppercase tracking-widest mb-3">Severity Breakdown</div>
+          <div class="space-y-2">
+            <template x-for="[label, color, dot, key] in [['Critical','bg-red-500/80','bg-red-500','critical'],['High','bg-orange-500/80','bg-orange-500','high'],['Medium','bg-yellow-500/80','bg-yellow-500','medium'],['Low','bg-blue-500/80','bg-blue-500','low']]">
               <div class="flex items-center gap-2">
-                <span class="w-14 text-xs text-slate-400 text-right" x-text="label"></span>
-                <div class="flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :class="dot"></span>
+                <span class="w-12 text-[11px] text-slate-400" x-text="label"></span>
+                <div class="flex-1 bg-slate-800/80 rounded-full h-1 overflow-hidden">
                   <div class="h-full rounded-full bar-fill" :class="color"
                     :style="`width:${stats.total_vuln_instances ? (stats.severity[key]/stats.total_vuln_instances*100) : 0}%`"></div>
                 </div>
-                <span class="w-8 text-xs text-slate-500 text-right" x-text="stats.severity[key]"></span>
+                <span class="w-7 text-[11px] text-slate-500 text-right font-mono" x-text="stats.severity[key]"></span>
               </div>
             </template>
           </div>
@@ -202,26 +261,72 @@
     </template>
 
     <!-- ═══ TAB NAV ══════════════════════════════════════════════════════ -->
-    <div class="flex items-center gap-1 mb-6 border-b border-slate-800 pb-0">
-      <template x-for="tab in ['overview','hosts','vulnerabilities','technologies','analytics','graph','targets','duplicates']">
-        <button @click="view = tab; $nextTick(()=>$dispatch('tab-changed', tab))"
-          class="px-4 py-2.5 text-sm font-semibold capitalize transition border-b-2 -mb-px flex items-center gap-1.5"
-          :class="view === tab
-            ? 'border-orange-500 text-orange-400'
-            : 'border-transparent text-slate-500 hover:text-slate-300 hover:border-slate-600'">
-          <span x-text="tab"></span>
-          <template x-if="tab==='duplicates' && stats && stats.duplicates_removed">
-            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-950 border border-yellow-800 text-yellow-400 font-bold"
-              x-text="stats.duplicates_removed"></span>
-          </template>
-        </button>
-      </template>
+    <div class="flex items-center gap-0.5 mb-6 border-b border-white/[0.06] pb-0 overflow-x-auto scrollbar-hide">
+      <!-- Overview -->
+      <button @click="view='overview'; $nextTick(()=>$dispatch('tab-changed','overview'))"
+        class="group flex items-center gap-2 px-4 py-3 text-[13px] font-semibold border-b-2 -mb-px transition-all duration-150 whitespace-nowrap"
+        :class="view==='overview' ? 'border-orange-500 text-orange-400' : 'border-transparent text-slate-500 hover:text-slate-200 hover:border-slate-600'">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+        Overview
+      </button>
+      <!-- Hosts -->
+      <button @click="view='hosts'; $nextTick(()=>$dispatch('tab-changed','hosts'))"
+        class="group flex items-center gap-2 px-4 py-3 text-[13px] font-semibold border-b-2 -mb-px transition-all duration-150 whitespace-nowrap"
+        :class="view==='hosts' ? 'border-orange-500 text-orange-400' : 'border-transparent text-slate-500 hover:text-slate-200 hover:border-slate-600'">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/></svg>
+        Hosts
+      </button>
+      <!-- Vulnerabilities -->
+      <button @click="view='vulnerabilities'; $nextTick(()=>$dispatch('tab-changed','vulnerabilities'))"
+        class="group flex items-center gap-2 px-4 py-3 text-[13px] font-semibold border-b-2 -mb-px transition-all duration-150 whitespace-nowrap"
+        :class="view==='vulnerabilities' ? 'border-orange-500 text-orange-400' : 'border-transparent text-slate-500 hover:text-slate-200 hover:border-slate-600'">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.618 5.984A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016zM12 9v2m0 4h.01"/></svg>
+        Vulnerabilities
+      </button>
+      <!-- Technologies -->
+      <button @click="view='technologies'; $nextTick(()=>$dispatch('tab-changed','technologies'))"
+        class="group flex items-center gap-2 px-4 py-3 text-[13px] font-semibold border-b-2 -mb-px transition-all duration-150 whitespace-nowrap"
+        :class="view==='technologies' ? 'border-orange-500 text-orange-400' : 'border-transparent text-slate-500 hover:text-slate-200 hover:border-slate-600'">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+        Technologies
+      </button>
+      <!-- Analytics -->
+      <button @click="view='analytics'; $nextTick(()=>$dispatch('tab-changed','analytics'))"
+        class="group flex items-center gap-2 px-4 py-3 text-[13px] font-semibold border-b-2 -mb-px transition-all duration-150 whitespace-nowrap"
+        :class="view==='analytics' ? 'border-orange-500 text-orange-400' : 'border-transparent text-slate-500 hover:text-slate-200 hover:border-slate-600'">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        Analytics
+      </button>
+      <!-- Graph -->
+      <button @click="view='graph'; $nextTick(()=>$dispatch('tab-changed','graph'))"
+        class="group flex items-center gap-2 px-4 py-3 text-[13px] font-semibold border-b-2 -mb-px transition-all duration-150 whitespace-nowrap"
+        :class="view==='graph' ? 'border-orange-500 text-orange-400' : 'border-transparent text-slate-500 hover:text-slate-200 hover:border-slate-600'">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        Graph
+      </button>
+      <!-- Targets -->
+      <button @click="view='targets'; $nextTick(()=>$dispatch('tab-changed','targets'))"
+        class="group flex items-center gap-2 px-4 py-3 text-[13px] font-semibold border-b-2 -mb-px transition-all duration-150 whitespace-nowrap"
+        :class="view==='targets' ? 'border-orange-500 text-orange-400' : 'border-transparent text-slate-500 hover:text-slate-200 hover:border-slate-600'">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><circle cx="12" cy="12" r="6" stroke-width="2"/><circle cx="12" cy="12" r="2" stroke-width="2"/></svg>
+        Targets
+      </button>
+      <!-- Duplicates -->
+      <button @click="view='duplicates'; $nextTick(()=>$dispatch('tab-changed','duplicates'))"
+        class="group flex items-center gap-2 px-4 py-3 text-[13px] font-semibold border-b-2 -mb-px transition-all duration-150 whitespace-nowrap"
+        :class="view==='duplicates' ? 'border-orange-500 text-orange-400' : 'border-transparent text-slate-500 hover:text-slate-200 hover:border-slate-600'">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        Duplicates
+        <template x-if="stats && stats.duplicates_removed">
+          <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-950 border border-yellow-800 text-yellow-400 font-bold" x-text="stats.duplicates_removed"></span>
+        </template>
+      </button>
     </div>
 
     <!-- ═══ GLOBAL FILTER BAR (cross-tab) ════════════════════════════════ -->
     <template x-if="anyFilterActive">
-      <div class="flex flex-wrap items-center gap-2 mb-5 p-3 bg-orange-950/20 border border-orange-900/40 rounded-xl">
-        <span class="text-[11px] text-orange-300/90 font-semibold uppercase tracking-wider flex items-center gap-1.5">
+      <div class="flex flex-wrap items-center gap-2 mb-5 px-3.5 py-2.5 bg-orange-500/[0.06] border border-orange-500/20 rounded-2xl backdrop-blur-sm slide-in">
+        <span class="text-[11px] text-orange-400 font-semibold uppercase tracking-widest flex items-center gap-1.5">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.879a1 1 0 00-.293-.707L3.293 7.007A1 1 0 013 6.3V4z"/>
           </svg>
@@ -229,19 +334,19 @@
         </span>
         <template x-for="(f,i) in globalFilters" :key="f.type+':'+f.value">
           <button @click="removeFacet(i)"
-            class="group inline-flex items-center gap-1.5 pl-2 pr-1.5 py-1 bg-slate-800 border border-slate-600 rounded-full text-xs hover:border-orange-500 transition">
-            <span class="w-2 h-2 rounded-full flex-shrink-0" x-show="f.color" :style="f.color?`background:${f.color}`:''"></span>
+            class="group inline-flex items-center gap-1.5 pl-2.5 pr-2 py-1 bg-slate-800/80 border border-white/[0.08] hover:border-orange-500/50 rounded-full text-xs transition-all duration-150">
+            <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" x-show="f.color" :style="f.color?`background:${f.color}`:''"></span>
             <span class="text-slate-500 capitalize" x-text="f.type"></span>
             <span class="text-slate-200 font-semibold" x-text="f.label"></span>
-            <span class="text-slate-500 group-hover:text-orange-400 font-bold">✕</span>
+            <span class="text-slate-600 group-hover:text-orange-400 transition-colors font-bold leading-none">✕</span>
           </button>
         </template>
         <template x-for="c in hostFilterChips" :key="c.key">
           <button @click="clearHostFilter(c.key)"
-            class="group inline-flex items-center gap-1.5 pl-2 pr-1.5 py-1 bg-slate-800 border border-slate-600 rounded-full text-xs hover:border-orange-500 transition">
+            class="group inline-flex items-center gap-1.5 pl-2.5 pr-2 py-1 bg-slate-800/60 border border-white/[0.08] hover:border-orange-500/50 rounded-full text-xs transition">
             <span class="text-slate-500 capitalize" x-text="c.type"></span>
             <span class="text-slate-200 font-semibold" x-text="c.label"></span>
-            <span class="text-slate-500 group-hover:text-orange-400 font-bold">✕</span>
+            <span class="text-slate-600 group-hover:text-orange-400 transition-colors font-bold leading-none">✕</span>
           </button>
         </template>
         <span class="text-[11px] text-slate-500 ml-1">
@@ -249,7 +354,7 @@
           <span x-text="hostsData.total || (stats && stats.total_records) || 0"></span> hosts match
         </span>
         <button @click="clearAllFilters()"
-          class="ml-auto px-3 py-1 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg transition">
+          class="ml-auto px-3 py-1 text-xs font-semibold text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-700/70 border border-white/[0.08] hover:border-white/20 rounded-lg transition">
           Clear all
         </button>
       </div>
@@ -262,7 +367,7 @@
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         <!-- Top Ports -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-5">
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Top Ports / Services</h3>
           <div class="space-y-2.5">
             <template x-for="(item, i) in stats.top_ports" :key="item.port">
@@ -284,7 +389,7 @@
         </div>
 
         <!-- Top Countries -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-5">
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Top Countries</h3>
           <div class="space-y-2.5">
             <template x-for="(c, i) in stats.top_countries.slice(0,10)" :key="c.code">
@@ -304,7 +409,7 @@
         </div>
 
         <!-- Top Orgs -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-5">
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Top Organizations</h3>
           <div class="space-y-2.5">
             <template x-for="o in stats.top_orgs" :key="o.org">
@@ -323,10 +428,10 @@
         </div>
 
         <!-- Top Vulnerabilities -->
-        <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="{ vulnInsightMode: 'cvss' }">
+        <div class="lg:col-span-2 bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-5" x-data="{ vulnInsightMode: 'cvss' }">
           <div class="flex items-center gap-3 mb-4 flex-wrap">
             <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold flex-1">Top Vulnerabilities</h3>
-            <div class="inline-flex rounded-lg border border-slate-700 bg-slate-950 p-0.5 text-[10px]">
+            <div class="inline-flex rounded-lg border border-white/[0.07] bg-[#060c18] p-0.5 text-[10px]">
               <template x-for="m in [{k:'cvss',l:'By CVSS'},{k:'spread',l:'Widest Spread'},{k:'epss',l:'By EPSS'},{k:'verified',l:'Verified'}]" :key="m.k">
                 <button @click="vulnInsightMode = m.k"
                   class="px-2.5 py-1 rounded-md font-semibold transition"
@@ -353,7 +458,7 @@
                     <template x-if="v.verified">
                       <span class="tag-badge bg-green-950 text-green-400 border border-green-800">✓ Verified</span>
                     </template>
-                    <span class="tag-badge bg-slate-700 text-slate-400 border border-slate-600 flex items-center gap-1">
+                    <span class="tag-badge bg-slate-700/60 text-slate-400 border border-white/[0.07] flex items-center gap-1">
                       <svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"/></svg>
                       <span x-text="v.host_count + (v.host_count===1?' host':' hosts')"></span>
                     </span>
@@ -383,7 +488,7 @@
         </div>
 
         <!-- Technology Breakdown -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-data="{ techExpanded: false }">
+        <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-5" x-data="{ techExpanded: false }">
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold">Technology Stack</h3>
             <span class="text-[10px] text-slate-600" x-text="stats.tech.length + ' technologies'"></span>
@@ -422,26 +527,26 @@
             </svg>
             <input type="text" x-model="_rawSearch" @input.debounce.300ms="search = _rawSearch; hostsPage = 0" @keydown.escape="_rawSearch=''; search=''; hostsPage=0"
               placeholder="Search… try  org:amazon  port:443  cve:2021  tech:nginx  -expired  (combine freely)"
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-9 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30">
+              class="w-full bg-[#0a1628]/80 border border-white/[0.08] rounded-xl pl-9 pr-9 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30">
             <button x-show="_rawSearch" @click="_rawSearch=''; search=''; hostsPage=0"
               class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">✕</button>
           </div>
           <select x-model="filters.port" @change="hostsPage = 0"
-            class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-orange-500">
+            class="bg-[#0a1628]/80 border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-orange-500">
             <option value="">All Ports</option>
             <template x-for="p in portOptions" :key="p.port">
               <option :value="p.port" x-text="':'+p.port+' ('+p.count+')'"></option>
             </template>
           </select>
           <select x-model="filters.country" @change="hostsPage = 0"
-            class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-orange-500 max-w-44">
+            class="bg-[#0a1628]/80 border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-orange-500 max-w-44">
             <option value="">All Countries</option>
             <template x-for="c in countryOptions" :key="c.code">
               <option :value="c.code" x-text="flag(c.code)+' '+c.name+' ('+c.count+')'"></option>
             </template>
           </select>
           <select x-model="filters.severity" @change="hostsPage = 0"
-            class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-orange-500">
+            class="bg-[#0a1628]/80 border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-orange-500">
             <option value="">Any Severity</option>
             <option value="critical">🔴 Critical</option>
             <option value="high">🟠 High</option>
@@ -451,20 +556,20 @@
           </select>
         </div>
         <div class="flex flex-wrap gap-2 items-center">
-          <label class="flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg cursor-pointer text-xs text-slate-300">
+          <label class="flex items-center gap-2 px-3 py-1.5 bg-[#0a1628]/80 border border-white/[0.08] rounded-xl cursor-pointer text-xs text-slate-300">
             <input type="checkbox" x-model="filters.hasCVE" @change="hostsPage = 0" class="accent-orange-500 rounded"> Has CVEs
           </label>
-          <label class="flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg cursor-pointer text-xs text-slate-300">
+          <label class="flex items-center gap-2 px-3 py-1.5 bg-[#0a1628]/80 border border-white/[0.08] rounded-xl cursor-pointer text-xs text-slate-300">
             <input type="checkbox" x-model="filters.verifiedCVE" @change="hostsPage = 0" class="accent-green-500 rounded"> Verified CVE
           </label>
-          <label class="flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg cursor-pointer text-xs text-slate-300">
+          <label class="flex items-center gap-2 px-3 py-1.5 bg-[#0a1628]/80 border border-white/[0.08] rounded-xl cursor-pointer text-xs text-slate-300">
             <input type="checkbox" x-model="filters.hasSSL" @change="hostsPage = 0" class="accent-orange-500 rounded"> Has SSL
           </label>
-          <label class="flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg cursor-pointer text-xs text-slate-300">
+          <label class="flex items-center gap-2 px-3 py-1.5 bg-[#0a1628]/80 border border-white/[0.08] rounded-xl cursor-pointer text-xs text-slate-300">
             <input type="checkbox" x-model="filters.sslExpired" @change="hostsPage = 0" class="accent-red-500 rounded"> Expired Cert
           </label>
           <button @click="clearFilters()"
-            class="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 bg-slate-900 border border-slate-700 rounded-lg transition">
+            class="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 bg-[#0a1628]/80 border border-white/[0.08] rounded-xl transition">
             Clear all
           </button>
           <span class="ml-auto flex items-center px-3 py-1.5 text-xs text-slate-500">
@@ -475,11 +580,11 @@
       </div>
 
       <!-- Table -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+      <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full text-xs">
             <thead>
-              <tr class="border-b border-slate-800 text-slate-500 uppercase tracking-wider text-[10px]">
+              <tr class="border-b border-white/[0.06] text-slate-500 uppercase tracking-wider text-[10px] bg-slate-900/40">
                 <th class="text-left px-4 py-3 cursor-pointer hover:text-slate-300 select-none" @click="toggleSort('ip_str')">
                   IP <span x-show="sort.by==='ip_str'" x-text="sort.dir==='asc'?'↑':'↓'"></span>
                 </th>
@@ -549,10 +654,10 @@
                   <td class="px-3 py-3">
                     <div class="flex flex-wrap gap-1">
                       <template x-for="t in r.tech.slice(0,3)" :key="t">
-                        <span class="inline-block px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-400 text-[10px]" x-text="t"></span>
+                        <span class="inline-block px-1.5 py-0.5 bg-slate-800/60 border border-white/[0.07] rounded text-slate-400 text-[10px]" x-text="t"></span>
                       </template>
                       <template x-if="r.tech.length > 3">
-                        <span class="inline-block px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-500 text-[10px]" x-text="'+' + (r.tech.length-3)"></span>
+                        <span class="inline-block px-1.5 py-0.5 bg-slate-800/60 border border-white/[0.07] rounded text-slate-500 text-[10px]" x-text="'+' + (r.tech.length-3)"></span>
                       </template>
                     </div>
                     <template x-if="r.cloud">
@@ -601,20 +706,20 @@
         </div>
         <div class="flex items-center gap-1">
           <button @click="hostsPage = 0" :disabled="hostsPage === 0"
-            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">«</button>
+            class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">«</button>
           <button @click="hostsPage--" :disabled="hostsPage === 0"
-            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">‹</button>
+            class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">‹</button>
           <template x-for="p in Array.from({length: hostsTotalPages}, (_, i) => i).filter(i => Math.abs(i - hostsPage) <= 2)" :key="p">
             <button @click="hostsPage = p"
               :class="p === hostsPage ? 'bg-orange-500 text-white border-orange-500' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'"
               class="px-2.5 py-1 text-xs rounded border" x-text="p + 1"></button>
           </template>
           <button @click="hostsPage++" :disabled="hostsPage >= hostsTotalPages - 1"
-            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">›</button>
+            class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">›</button>
           <button @click="hostsPage = hostsTotalPages - 1" :disabled="hostsPage >= hostsTotalPages - 1"
-            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">»</button>
+            class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">»</button>
           <select x-model.number="perPage" @change="hostsPage = 0; savePerPage()"
-            class="ml-3 px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400">
+            class="ml-3 px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400">
             <option value="10">10 / page</option>
             <option value="25">25 / page</option>
             <option value="50">50 / page</option>
@@ -635,10 +740,10 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
           </svg>
           <input type="text" x-model="vulnSearch" placeholder="Search CVE ID or description…"
-            class="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30">
+            class="w-full bg-[#0a1628]/80 border border-white/[0.08] rounded-xl pl-9 pr-4 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30">
         </div>
         <select x-model="vulnFilter"
-          class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-orange-500">
+          class="bg-[#0a1628]/80 border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-orange-500">
           <option value="">All Severities</option>
           <option value="critical">Critical (≥9.0)</option>
           <option value="high">High (≥7.0)</option>
@@ -646,13 +751,13 @@
           <option value="low">Low</option>
         </select>
         <select x-model="vulnSort"
-          class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-orange-500">
+          class="bg-[#0a1628]/80 border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-orange-500">
           <option value="cvss">Sort: CVSS</option>
           <option value="hosts">Sort: Host count</option>
           <option value="epss">Sort: EPSS</option>
           <option value="cve">Sort: CVE ID</option>
         </select>
-        <label class="flex items-center gap-2 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg cursor-pointer text-sm text-slate-300">
+        <label class="flex items-center gap-2 px-3 py-2 bg-[#0a1628]/80 border border-white/[0.08] rounded-xl cursor-pointer text-sm text-slate-300">
           <input type="checkbox" x-model="vulnVerifiedOnly" class="accent-green-500 rounded">
           Verified Only
         </label>
@@ -664,7 +769,7 @@
 
       <div class="space-y-2">
         <template x-for="v in pagedVulns" :key="v.cve">
-          <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl overflow-hidden">
             <div class="p-4 flex items-start gap-4 cursor-pointer" @click="v._open = !v._open">
               <span class="tag-badge flex-shrink-0 mt-0.5" :class="severityBg(v.max_cvss)" x-text="severityLabel(v.max_cvss)"></span>
               <div class="flex-1 min-w-0">
@@ -675,10 +780,10 @@
                     <span class="tag-badge bg-green-950 text-green-400 border border-green-800">✓ Verified</span>
                   </template>
                   <template x-if="v.epss">
-                    <span class="tag-badge bg-slate-800 text-slate-400 border border-slate-700"
+                    <span class="tag-badge bg-slate-800/60 text-slate-400 border border-white/[0.07]"
                       x-text="'EPSS ' + (v.epss*100).toFixed(2)+'%'"></span>
                   </template>
-                  <span class="tag-badge bg-slate-800 text-slate-400 border border-slate-700"
+                  <span class="tag-badge bg-slate-800/60 text-slate-400 border border-white/[0.07]"
                     x-text="v.host_count + (v.host_count===1?' host':' hosts')"></span>
                   <!-- Filter button — cross-filters all tabs by this CVE -->
                   <button @click.stop="toggleFacet('cve', v.cve, v.cve)"
@@ -718,7 +823,7 @@
                 <div class="flex flex-wrap gap-1.5">
                   <template x-for="h in v.hosts" :key="h.ip+':'+h.port">
                     <button @click.stop="openHostByIp(h.ip, h.port)"
-                      class="flex flex-col items-start px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded-lg hover:border-orange-500 transition text-left">
+                      class="flex flex-col items-start px-2.5 py-1.5 bg-slate-800/60 border border-white/[0.08] rounded-xl hover:border-orange-500 transition text-left">
                       <span class="text-[11px] text-orange-400 font-mono leading-tight" x-text="h.ip+':'+h.port"></span>
                       <template x-if="h.hostname">
                         <span class="text-[10px] text-slate-500 font-mono leading-tight truncate max-w-[200px]" x-text="h.hostname"></span>
@@ -747,14 +852,14 @@
           of <span class="text-slate-300" x-text="filteredVulns.length"></span>
         </div>
         <div class="flex items-center gap-1">
-          <button @click="vulnsPage = 0" :disabled="vulnsPage === 0" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">«</button>
-          <button @click="vulnsPage--" :disabled="vulnsPage === 0" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">‹</button>
+          <button @click="vulnsPage = 0" :disabled="vulnsPage === 0" class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">«</button>
+          <button @click="vulnsPage--" :disabled="vulnsPage === 0" class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">‹</button>
           <template x-for="p in Array.from({length: vulnsTotalPages}, (_, i) => i).filter(i => Math.abs(i - vulnsPage) <= 2)" :key="p">
             <button @click="vulnsPage = p" :class="p === vulnsPage ? 'bg-orange-500 text-white border-orange-500' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'" class="px-2.5 py-1 text-xs rounded border" x-text="p + 1"></button>
           </template>
-          <button @click="vulnsPage++" :disabled="vulnsPage >= vulnsTotalPages - 1" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">›</button>
-          <button @click="vulnsPage = vulnsTotalPages - 1" :disabled="vulnsPage >= vulnsTotalPages - 1" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">»</button>
-          <select x-model.number="perPage" @change="vulnsPage = 0; savePerPage()" class="ml-3 px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400">
+          <button @click="vulnsPage++" :disabled="vulnsPage >= vulnsTotalPages - 1" class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">›</button>
+          <button @click="vulnsPage = vulnsTotalPages - 1" :disabled="vulnsPage >= vulnsTotalPages - 1" class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">»</button>
+          <select x-model.number="perPage" @change="vulnsPage = 0; savePerPage()" class="ml-3 px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400">
             <option value="10">10 / page</option><option value="25">25 / page</option><option value="50">50 / page</option><option value="100">100 / page</option>
           </select>
         </div>
@@ -767,11 +872,11 @@
     <template x-if="view === 'technologies' && stats"><div>
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
         <template x-for="t in pagedTech" :key="t.name">
-          <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-600 transition">
+          <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-4 hover:border-slate-600 transition">
             <div class="text-sm font-bold text-slate-200 truncate" x-text="t.name"></div>
             <div class="mt-1 flex flex-wrap gap-1">
               <template x-for="cat in t.categories" :key="cat">
-                <span class="tag-badge bg-slate-800 text-slate-400 border border-slate-700" x-text="cat"></span>
+                <span class="tag-badge bg-slate-800/60 text-slate-400 border border-white/[0.07]" x-text="cat"></span>
               </template>
             </div>
             <template x-if="t.versions && t.versions.length">
@@ -799,14 +904,14 @@
           of <span class="text-slate-300" x-text="filteredTech.length"></span>
         </div>
         <div class="flex items-center gap-1">
-          <button @click="techPage = 0" :disabled="techPage === 0" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">«</button>
-          <button @click="techPage--" :disabled="techPage === 0" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">‹</button>
+          <button @click="techPage = 0" :disabled="techPage === 0" class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">«</button>
+          <button @click="techPage--" :disabled="techPage === 0" class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">‹</button>
           <template x-for="p in Array.from({length: techTotalPages}, (_, i) => i).filter(i => Math.abs(i - techPage) <= 2)" :key="p">
             <button @click="techPage = p" :class="p === techPage ? 'bg-orange-500 text-white border-orange-500' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'" class="px-2.5 py-1 text-xs rounded border" x-text="p + 1"></button>
           </template>
-          <button @click="techPage++" :disabled="techPage >= techTotalPages - 1" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">›</button>
-          <button @click="techPage = techTotalPages - 1" :disabled="techPage >= techTotalPages - 1" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">»</button>
-          <select x-model.number="perPage" @change="techPage = 0; savePerPage()" class="ml-3 px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400">
+          <button @click="techPage++" :disabled="techPage >= techTotalPages - 1" class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">›</button>
+          <button @click="techPage = techTotalPages - 1" :disabled="techPage >= techTotalPages - 1" class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">»</button>
+          <select x-model.number="perPage" @change="techPage = 0; savePerPage()" class="ml-3 px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400">
             <option value="10">10 / page</option><option value="25">25 / page</option><option value="50">50 / page</option><option value="100">100 / page</option>
           </select>
         </div>
@@ -820,7 +925,7 @@
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <!-- Risk landscape — sorted CVSS line chart -->
-        <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="lg:col-span-2 bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-5">
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-1">Risk Landscape</h3>
           <p class="text-[11px] text-slate-600 mb-3">Hosts ranked by peak CVSS — left = safe, right = most exposed. Fill shows CVE count depth.</p>
           <div class="flex">
@@ -868,7 +973,7 @@
         </div>
 
         <!-- Severity donut -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-5">
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-3">Hosts by Severity</h3>
           <div class="flex items-center gap-4">
             <svg viewBox="0 0 120 120" class="w-32 h-32 flex-shrink-0">
@@ -900,7 +1005,7 @@
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <!-- Port × Severity correlation heatmap -->
-        <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="lg:col-span-2 bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-5">
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-1">Port × Severity Correlation</h3>
           <p class="text-[11px] text-slate-600 mb-3">Where does risk concentrate? Darker = more hosts on that port at that severity.</p>
           <div class="text-[11px]">
@@ -929,7 +1034,7 @@
         </div>
 
         <!-- SSL posture donut -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-5">
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-3">TLS / Certificate Posture</h3>
           <div class="flex items-center gap-4">
             <svg viewBox="0 0 120 120" class="w-32 h-32 flex-shrink-0">
@@ -961,7 +1066,7 @@
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <!-- CVSS histogram -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-5">
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Host CVSS Distribution</h3>
           <div class="flex items-end justify-between gap-2 h-40">
             <template x-for="b in an.histogram" :key="b.label">
@@ -977,7 +1082,7 @@
         </div>
 
         <!-- Top vulnerable orgs -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-5">
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Most Exposed Organizations</h3>
           <div class="space-y-2.5">
             <template x-for="o in an.orgs" :key="o.label">
@@ -998,7 +1103,7 @@
         </div>
 
         <!-- Technology adoption -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-5">
           <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Technology Adoption</h3>
           <div class="space-y-2.5">
             <template x-for="t in an.techBars" :key="t.label">
@@ -1020,7 +1125,7 @@
       </div>
 
       <!-- Scan timeline -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5" x-show="an.timeline.length>1">
+      <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-5" x-show="an.timeline.length>1">
         <h3 class="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-4">Scan Activity Over Time</h3>
         <div class="flex items-end gap-1 h-32">
           <template x-for="d in an.timeline" :key="d.date">
@@ -1043,12 +1148,12 @@
     <!-- ═══════════════════════════════════════════════════════════════════ -->
     <div x-show="view === 'graph'" x-data="networkGraph()" x-init="$watch('$store', ()=>{}); $nextTick(()=>{ if(view==='graph') initGraph(); })" @tab-changed.window="if($event.detail==='graph') initGraph()">
       <!-- Controls -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4">
+      <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-4 mb-4">
         <div class="flex flex-wrap gap-3 items-end">
           <div>
             <label class="block text-[10px] text-slate-500 uppercase tracking-wide mb-1">Group hubs by</label>
             <select x-model="gf.groupBy" @change="renderGraph()"
-              class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-orange-500">
+              class="bg-[#060c18] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-orange-500">
               <option value="org">Organization</option>
               <option value="subnet">Subnet (/24)</option>
               <option value="country">Country</option>
@@ -1058,7 +1163,7 @@
           <div>
             <label class="block text-[10px] text-slate-500 uppercase tracking-wide mb-1">Host color</label>
             <select x-model="gf.leafColor" @change="renderGraph()"
-              class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-orange-500">
+              class="bg-[#060c18] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-orange-500">
               <option value="severity">Risk severity</option>
               <option value="group">Group color</option>
             </select>
@@ -1066,7 +1171,7 @@
           <div>
             <label class="block text-[10px] text-slate-500 uppercase tracking-wide mb-1">Min CVSS</label>
             <select x-model.number="gf.minCvss" @change="renderGraph()"
-              class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-orange-500">
+              class="bg-[#060c18] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-orange-500">
               <option value="0">Any</option>
               <option value="4">4+ Medium</option>
               <option value="7">7+ High</option>
@@ -1076,17 +1181,17 @@
           <div>
             <label class="block text-[10px] text-slate-500 uppercase tracking-wide mb-1">CVE filter</label>
             <input type="text" x-model="gf.cveFilter" @input.debounce.400ms="renderGraph()" placeholder="e.g. CVE-2021-44228"
-              class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-orange-500 w-44">
+              class="bg-[#060c18] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-orange-500 w-44">
           </div>
           <div>
             <label class="block text-[10px] text-slate-500 uppercase tracking-wide mb-1">Org / group search</label>
             <input type="text" x-model="gf.orgFilter" @input.debounce.400ms="renderGraph()" placeholder="Filter by name"
-              class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-orange-500 w-36">
+              class="bg-[#060c18] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-orange-500 w-36">
           </div>
           <div>
             <label class="block text-[10px] text-slate-500 uppercase tracking-wide mb-1">Max hosts</label>
             <select x-model.number="gf.maxHosts" @change="renderGraph()"
-              class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-orange-500">
+              class="bg-[#060c18] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-orange-500">
               <option value="150">150</option>
               <option value="300">300</option>
               <option value="600">600</option>
@@ -1101,7 +1206,7 @@
             </label>
           </div>
           <button @click="gf={groupBy:'org',leafColor:'severity',minCvss:0,cveFilter:'',orgFilter:'',maxHosts:300,showLabels:true}; renderGraph()"
-            class="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 bg-slate-950 border border-slate-700 rounded-lg transition">Reset</button>
+            class="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 bg-[#060c18] border border-white/[0.08] rounded-lg transition">Reset</button>
           <div class="ml-auto text-xs text-slate-500 text-right">
             <span class="text-slate-300 font-semibold" x-text="graphHubCount"></span> hubs
             <span class="text-slate-600"> · </span>
@@ -1141,7 +1246,7 @@
       </div>
 
       <!-- Canvas -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden relative" style="height:640px">
+      <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl overflow-hidden relative" style="height:640px">
         <canvas id="graph-canvas" class="w-full h-full" style="cursor:grab"></canvas>
         <div x-show="graphLoading" class="absolute inset-0 flex items-center justify-center bg-slate-900/80">
           <div class="text-slate-400 text-sm">Computing layout…</div>
@@ -1152,15 +1257,15 @@
         <!-- Zoom controls -->
         <div class="absolute bottom-4 right-4 flex flex-col gap-1.5 z-10">
           <button @click="zoomIn()" title="Zoom in"
-            class="w-8 h-8 flex items-center justify-center bg-slate-800/90 border border-slate-600 rounded-lg text-slate-200 hover:bg-slate-700 hover:border-slate-400 transition text-base font-bold select-none">+</button>
+            class="w-8 h-8 flex items-center justify-center bg-slate-800/60 border border-white/[0.09] rounded-lg text-slate-200 hover:bg-slate-700/70 hover:border-white/20 transition text-base font-bold select-none">+</button>
           <button @click="zoomOut()" title="Zoom out"
-            class="w-8 h-8 flex items-center justify-center bg-slate-800/90 border border-slate-600 rounded-lg text-slate-200 hover:bg-slate-700 hover:border-slate-400 transition text-base font-bold select-none">−</button>
+            class="w-8 h-8 flex items-center justify-center bg-slate-800/60 border border-white/[0.09] rounded-lg text-slate-200 hover:bg-slate-700/70 hover:border-white/20 transition text-base font-bold select-none">−</button>
           <button @click="fitGraph()" title="Fit all to view"
-            class="w-8 h-8 flex items-center justify-center bg-slate-800/90 border border-slate-600 rounded-lg text-slate-200 hover:bg-slate-700 hover:border-slate-400 transition text-sm select-none" style="font-size:16px">⊡</button>
+            class="w-8 h-8 flex items-center justify-center bg-slate-800/60 border border-white/[0.09] rounded-lg text-slate-200 hover:bg-slate-700/70 hover:border-white/20 transition text-sm select-none" style="font-size:16px">⊡</button>
         </div>
         <!-- Tooltip -->
         <div x-show="tooltip.visible" x-cloak
-          class="absolute pointer-events-none bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl z-10"
+          class="absolute pointer-events-none bg-slate-800/60 border border-white/[0.08] rounded-xl px-3 py-2 text-xs shadow-xl z-10"
           :style="`left:${tooltip.x+14}px;top:${tooltip.y-10}px`">
           <template x-if="tooltip.type === 'leaf'">
             <div>
@@ -1187,7 +1292,7 @@
     <!-- ═══════════════════════════════════════════════════════════════════ -->
     <div x-show="view === 'targets'">
       <!-- Control bar -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4">
+      <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-4 mb-4">
         <div class="flex flex-wrap items-center gap-3">
           <div>
             <div class="text-sm font-semibold text-slate-200">Website Health</div>
@@ -1197,7 +1302,7 @@
               <span class="font-mono text-slate-400">Shodanify-Healthcheck</span>.
             </p>
           </div>
-          <div class="ml-auto inline-flex rounded-lg border border-slate-700 bg-slate-950 p-0.5 text-xs">
+          <div class="ml-auto inline-flex rounded-lg border border-white/[0.07] bg-[#060c18] p-0.5 text-xs">
             <template x-for="opt in [{k:'sites',label:'Websites',n:targetCounts.sites,facet:'website'},{k:'all',label:'All web',n:targetCounts.all,facet:null},{k:'infra',label:'Infrastructure',n:targetCounts.infra,facet:'infra'}]" :key="opt.k">
               <button @click="
                 targetType = opt.k; targetsPage = 0; targetStatusFilter = null;
@@ -1213,7 +1318,15 @@
           </div>
           <div class="relative min-w-52">
             <input type="text" x-model="targetSearch" @input.debounce.200ms="targetsPage = 0" placeholder="Filter by domain, IP or org…"
-              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500">
+              class="w-full bg-[#060c18] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500">
+          </div>
+          <div class="flex items-center gap-1 border border-white/[0.07] rounded-lg px-2 bg-[#060c18]" title="Parallel scan threads sent to the server per batch. 30–50 is reliable; 100+ is faster but may cause rate-limiting or connection resets.">
+            <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"/>
+            </svg>
+            <input type="number" x-model.number="scanThreads" min="1" max="500" :disabled="scanningAll"
+              class="w-14 bg-transparent py-2 text-sm text-slate-200 text-center focus:outline-none disabled:opacity-50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none">
+            <span class="text-xs text-slate-500 pr-1">threads</span>
           </div>
           <button @click="scanAll()" :disabled="scanningAll || !filteredTargets.length"
             class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-orange-500/90 hover:bg-orange-500 text-white transition disabled:opacity-50 disabled:cursor-not-allowed">
@@ -1227,11 +1340,18 @@
         <!-- Scan progress bar -->
         <div x-show="scanningAll" x-transition class="mt-3">
           <div class="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-            <span x-text="`Scanning ${scanProgress.done} of ${scanProgress.total} targets…`"></span>
-            <span class="font-mono" x-text="scanProgress.total ? Math.round(scanProgress.done / scanProgress.total * 100) + '%' : ''"></span>
+            <span x-text="scanStopRequested ? `Stopping after current batch… (${scanProgress.done}/${scanProgress.total})` : `Scanning ${scanProgress.done} of ${scanProgress.total} targets…`"></span>
+            <div class="flex items-center gap-2">
+              <span class="font-mono" x-text="scanProgress.total ? Math.round(scanProgress.done / scanProgress.total * 100) + '%' : ''"></span>
+              <button @click="stopScan()" :disabled="scanStopRequested"
+                class="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-900/60 hover:bg-red-800 border border-red-700 text-red-300 transition disabled:opacity-40">
+                <span x-text="scanStopRequested ? 'Stopping…' : 'Stop'"></span>
+              </button>
+            </div>
           </div>
           <div class="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
-            <div class="h-full bg-orange-500 transition-all duration-300"
+            <div class="h-full transition-all duration-300"
+              :class="scanStopRequested ? 'bg-red-500' : 'bg-orange-500'"
               :style="`width:${scanProgress.total ? (scanProgress.done / scanProgress.total * 100) : 0}%`"></div>
           </div>
         </div>
@@ -1239,7 +1359,7 @@
         <div class="flex flex-wrap gap-2 mt-3 text-xs">
           <button @click="targetStatusFilter = null; targetsPage = 0"
             :class="targetStatusFilter === null ? 'ring-1 ring-orange-500' : 'opacity-70 hover:opacity-100'"
-            class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 transition cursor-pointer">
+            class="px-2.5 py-1 rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 transition cursor-pointer">
             <span class="text-slate-200 font-semibold" x-text="filteredTargets.length + (targetStatusFilter ? '' : ' shown')"></span>
             <span x-show="!targetStatusFilter"> total</span>
           </button>
@@ -1260,7 +1380,7 @@
           </button>
           <button @click="targetStatusFilter = targetStatusFilter === 'unscanned' ? null : 'unscanned'; targetsPage = 0"
             :class="targetStatusFilter === 'unscanned' ? 'ring-1 ring-slate-400' : 'opacity-70 hover:opacity-100'"
-            class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 transition cursor-pointer">
+            class="px-2.5 py-1 rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 transition cursor-pointer">
             <span class="font-semibold" x-text="targetSummary.open + targetSummary.unscanned"></span> unscanned / other
           </button>
         </div>
@@ -1275,7 +1395,7 @@
             Mark as infrastructure
           </button>
           <button @click="clearSelection()"
-            class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition">
+            class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800/70 hover:bg-slate-700/80 border border-white/[0.09] hover:border-white/[0.15] text-slate-300 transition">
             Clear
           </button>
         </div>
@@ -1287,12 +1407,17 @@
             Build Report…
           </button>
           <button @click="exportTargetsCSV()" :disabled="!filteredTargets.length"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition disabled:opacity-50">
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800/70 hover:bg-slate-700/80 border border-white/[0.09] hover:border-white/[0.15] text-slate-200 transition disabled:opacity-50">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
             Export CSV
           </button>
+          <button @click="quickExportReport()" :disabled="!filteredTargets.length"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800/70 hover:bg-slate-700/80 border border-white/[0.09] hover:border-white/[0.15] text-slate-200 transition disabled:opacity-50">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            Quick Export
+          </button>
           <button @click="showInfraEditor = !showInfraEditor"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition ml-auto">
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800/70 hover:bg-slate-700/80 border border-white/[0.09] hover:border-white/[0.15] text-slate-300 transition ml-auto">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
             Tune infrastructure list
           </button>
@@ -1310,7 +1435,7 @@
           <div class="flex gap-2 mb-3">
             <input type="text" x-model="newInfraDomain" @keydown.enter="addInfraDomain()"
               placeholder="add domain, e.g. mycloudhost.com"
-              class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500">
+              class="flex-1 bg-[#060c18] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500">
             <button @click="addInfraDomain()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-orange-500/90 hover:bg-orange-500 text-white transition">Add</button>
           </div>
           <div class="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
@@ -1326,29 +1451,41 @@
       </div>
 
       <!-- Targets table -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+      <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full text-xs">
             <thead>
-              <tr class="border-b border-slate-800 text-slate-500 uppercase tracking-wider text-[10px]">
+              <tr class="border-b border-white/[0.06] text-slate-500 uppercase tracking-wider text-[10px] bg-slate-900/40">
                 <th class="px-3 py-3 w-8">
                   <input type="checkbox" class="accent-orange-500 rounded cursor-pointer"
                     :checked="allVisibleSelected" @change="toggleSelectAll()"
                     title="Select all visible targets">
                 </th>
-                <th class="text-left px-4 py-3">Website / Domain</th>
+                <th class="text-left px-4 py-3 cursor-pointer select-none hover:text-slate-300 transition" @click="sortBy('domain')">
+                  Website / Domain <span x-text="targetSortCol==='domain' ? (targetSortDir==='asc'?'↑':'↓') : ''" class="text-orange-400"></span>
+                </th>
                 <th class="text-left px-3 py-3">Title</th>
-                <th class="text-left px-3 py-3">Org</th>
-                <th class="text-left px-3 py-3">Status</th>
-                <th class="text-left px-3 py-3">Response</th>
-                <th class="text-center px-3 py-3">Issues</th>
-                <th class="text-left px-3 py-3">Last scanned</th>
+                <th class="text-left px-3 py-3 cursor-pointer select-none hover:text-slate-300 transition" @click="sortBy('org')">
+                  Org <span x-text="targetSortCol==='org' ? (targetSortDir==='asc'?'↑':'↓') : ''" class="text-orange-400"></span>
+                </th>
+                <th class="text-left px-3 py-3 cursor-pointer select-none hover:text-slate-300 transition" @click="sortBy('status')">
+                  Status <span x-text="targetSortCol==='status' ? (targetSortDir==='asc'?'↑':'↓') : ''" class="text-orange-400"></span>
+                </th>
+                <th class="text-left px-3 py-3 cursor-pointer select-none hover:text-slate-300 transition" @click="sortBy('response')">
+                  Response <span x-text="targetSortCol==='response' ? (targetSortDir==='asc'?'↑':'↓') : ''" class="text-orange-400"></span>
+                </th>
+                <th class="text-center px-3 py-3 cursor-pointer select-none hover:text-slate-300 transition" @click="sortBy('issues')">
+                  Issues <span x-text="targetSortCol==='issues' ? (targetSortDir==='asc'?'↑':'↓') : ''" class="text-orange-400"></span>
+                </th>
+                <th class="text-left px-3 py-3 cursor-pointer select-none hover:text-slate-300 transition" @click="sortBy('scanned')">
+                  Last scanned <span x-text="targetSortCol==='scanned' ? (targetSortDir==='asc'?'↑':'↓') : ''" class="text-orange-400"></span>
+                </th>
                 <th class="text-right px-4 py-3">Action</th>
               </tr>
             </thead>
             <tbody>
               <template x-for="t in pagedTargets" :key="t.key">
-                <tr class="group border-b border-slate-800/50 hover:bg-slate-800/40 transition"
+                <tr class="group border-b border-white/[0.04] hover:bg-white/[0.03] transition"
                   :class="selectedTargets[t.key] ? 'bg-orange-950/20' : ''">
                   <!-- Select -->
                   <td class="px-3 py-3">
@@ -1371,7 +1508,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
                       </svg>
                       <template x-if="!t.is_site">
-                        <span class="tag-badge bg-slate-800 text-slate-500 border border-slate-700"
+                        <span class="tag-badge bg-slate-800/60 text-slate-500 border border-white/[0.07]"
                           x-text="t.cloud?.provider || 'infra'"></span>
                       </template>
                     </div>
@@ -1384,10 +1521,15 @@
                     </div>
                   </td>
                   <!-- Title / description -->
-                  <td class="px-3 py-3 max-w-[200px]">
-                    <span class="truncate block text-slate-300 text-[11px]"
+                  <td class="px-3 py-3 max-w-[220px]">
+                    <span class="truncate block text-slate-300 text-[11px] font-medium"
                       x-text="scans[t.key]?.title || t.http_title || '—'"
                       :title="scans[t.key]?.title || t.http_title || ''"></span>
+                    <template x-if="scans[t.key]?.description">
+                      <span class="truncate block text-slate-500 text-[10px] mt-0.5 leading-snug"
+                        x-text="scans[t.key].description"
+                        :title="scans[t.key].description"></span>
+                    </template>
                     <template x-if="scans[t.key]?.redirected">
                       <div class="text-[10px] text-blue-400/70 mt-0.5 truncate" x-text="'→ ' + scans[t.key].final_url"></div>
                     </template>
@@ -1432,7 +1574,7 @@
                   <!-- Action -->
                   <td class="px-4 py-3 text-right">
                     <button @click="scanOne(t)" :disabled="scanning[t.key]"
-                      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition disabled:opacity-50">
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-semibold bg-slate-800/70 hover:bg-slate-700/80 border border-white/[0.09] hover:border-white/[0.15] text-slate-300 transition disabled:opacity-50">
                       <svg class="w-3 h-3" :class="scanning[t.key]?'animate-spin':''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
                           :d="scanning[t.key] ? 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15' : 'M9 5l7 7-7 7'"/>
@@ -1460,20 +1602,20 @@
         </div>
         <div class="flex items-center gap-1">
           <button @click="targetsPage = 0" :disabled="targetsPage === 0"
-            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">«</button>
+            class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">«</button>
           <button @click="targetsPage--" :disabled="targetsPage === 0"
-            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">‹</button>
+            class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">‹</button>
           <template x-for="p in Array.from({length: targetsTotalPages}, (_, i) => i).filter(i => Math.abs(i - targetsPage) <= 2)" :key="p">
             <button @click="targetsPage = p"
               :class="p === targetsPage ? 'bg-orange-500 text-white border-orange-500' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'"
               class="px-2.5 py-1 text-xs rounded border" x-text="p + 1"></button>
           </template>
           <button @click="targetsPage++" :disabled="targetsPage >= targetsTotalPages - 1"
-            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">›</button>
+            class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">›</button>
           <button @click="targetsPage = targetsTotalPages - 1" :disabled="targetsPage >= targetsTotalPages - 1"
-            class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">»</button>
+            class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">»</button>
           <select x-model.number="perPage" @change="targetsPage = 0; savePerPage()"
-            class="ml-3 px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400">
+            class="ml-3 px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400">
             <option value="10">10 / page</option>
             <option value="25">25 / page</option>
             <option value="50">50 / page</option>
@@ -1488,7 +1630,7 @@
     <!--  DUPLICATES TAB                                                      -->
     <!-- ═══════════════════════════════════════════════════════════════════ -->
     <template x-if="view === 'duplicates'"><div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4 flex flex-wrap items-center gap-x-6 gap-y-2">
+      <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl p-4 mb-4 flex flex-wrap items-center gap-x-6 gap-y-2">
         <div>
           <div class="text-2xl font-bold text-slate-100" x-text="duplicates?.group_count ?? '…'"></div>
           <div class="text-xs text-slate-500 uppercase tracking-wider">IP:Port collisions</div>
@@ -1504,13 +1646,13 @@
         </p>
         <div class="relative min-w-52">
           <input type="text" x-model="dupSearch" placeholder="Filter by IP or org…"
-            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500">
+            class="w-full bg-[#060c18] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-orange-500">
         </div>
       </div>
 
       <div class="space-y-2">
         <template x-for="g in pagedDups" :key="g.ip_str+':'+g.port">
-          <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div class="bg-[#0d1b2e]/80 border border-white/[0.07] rounded-2xl overflow-hidden">
             <div class="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-800/40" @click="g._open=!g._open">
               <span class="font-mono font-semibold text-orange-400" x-text="g.ip_str"></span>
               <span class="text-slate-600">:</span>
@@ -1532,7 +1674,7 @@
                       <span class="tag-badge bg-green-950 text-green-400 border border-green-800">KEPT</span>
                     </template>
                     <template x-if="!o.kept">
-                      <span class="tag-badge bg-slate-800 text-slate-500 border border-slate-700">dropped</span>
+                      <span class="tag-badge bg-slate-800/60 text-slate-500 border border-white/[0.07]">dropped</span>
                     </template>
                   </span>
                   <span class="text-slate-400 font-mono w-40" x-text="o.source"></span>
@@ -1560,14 +1702,14 @@
           of <span class="text-slate-300" x-text="filteredDuplicates.length"></span>
         </div>
         <div class="flex items-center gap-1">
-          <button @click="dupsPage = 0" :disabled="dupsPage === 0" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">«</button>
-          <button @click="dupsPage--" :disabled="dupsPage === 0" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">‹</button>
+          <button @click="dupsPage = 0" :disabled="dupsPage === 0" class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">«</button>
+          <button @click="dupsPage--" :disabled="dupsPage === 0" class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">‹</button>
           <template x-for="p in Array.from({length: dupsTotalPages}, (_, i) => i).filter(i => Math.abs(i - dupsPage) <= 2)" :key="p">
             <button @click="dupsPage = p" :class="p === dupsPage ? 'bg-orange-500 text-white border-orange-500' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'" class="px-2.5 py-1 text-xs rounded border" x-text="p + 1"></button>
           </template>
-          <button @click="dupsPage++" :disabled="dupsPage >= dupsTotalPages - 1" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">›</button>
-          <button @click="dupsPage = dupsTotalPages - 1" :disabled="dupsPage >= dupsTotalPages - 1" class="px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed">»</button>
-          <select x-model.number="perPage" @change="dupsPage = 0; savePerPage()" class="ml-3 px-2 py-1 text-xs rounded bg-slate-800 border border-slate-700 text-slate-400">
+          <button @click="dupsPage++" :disabled="dupsPage >= dupsTotalPages - 1" class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">›</button>
+          <button @click="dupsPage = dupsTotalPages - 1" :disabled="dupsPage >= dupsTotalPages - 1" class="px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all">»</button>
+          <select x-model.number="perPage" @change="dupsPage = 0; savePerPage()" class="ml-3 px-2 py-1 text-xs rounded-lg bg-slate-800/60 border border-white/[0.08] text-slate-400">
             <option value="10">10 / page</option><option value="25">25 / page</option><option value="50">50 / page</option><option value="100">100 / page</option>
           </select>
         </div>
@@ -1582,7 +1724,7 @@
   <div x-show="selectedRecord" x-cloak
     class="fixed inset-0 z-50 flex items-start justify-center pt-8 pb-8 px-4 overflow-y-auto bg-slate-950/90 backdrop-blur"
     @click.self="closeModal()">
-    <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl shadow-2xl modal-enter" @click.stop>
+    <div class="bg-[#0c1829] border border-white/[0.08] rounded-2xl w-full max-w-3xl shadow-2xl modal-enter" @click.stop>
 
       <!-- Modal Header -->
       <div class="flex items-start justify-between p-5 border-b border-slate-800">
@@ -1593,7 +1735,7 @@
             <span class="text-xl font-black font-mono"
               :class="selectedRecord?.port===443?'text-purple-400':selectedRecord?.port===80?'text-blue-400':'text-slate-200'"
               x-text="selectedRecord?.port"></span>
-            <span class="tag-badge bg-slate-800 text-slate-400 border border-slate-700" x-text="selectedRecord?.transport || 'tcp'"></span>
+            <span class="tag-badge bg-slate-800/60 text-slate-400 border border-white/[0.07]" x-text="selectedRecord?.transport || 'tcp'"></span>
             <template x-if="selectedRecord?.has_ssl">
               <span class="tag-badge bg-purple-950 text-purple-400 border border-purple-800">TLS/SSL</span>
             </template>
@@ -1782,7 +1924,7 @@
                           <span class="text-sm font-semibold text-slate-200 w-28 flex-shrink-0" x-text="t.name"></span>
                           <div class="flex flex-wrap gap-1">
                             <template x-for="cat in t.categories" :key="cat">
-                              <span class="tag-badge bg-slate-700 text-slate-400 border border-slate-600" x-text="cat"></span>
+                              <span class="tag-badge bg-slate-700/60 text-slate-400 border border-white/[0.07]" x-text="cat"></span>
                             </template>
                             <template x-for="ver in t.versions" :key="ver">
                               <span class="tag-badge bg-blue-950 text-blue-400 border border-blue-800" x-text="ver"></span>
@@ -1930,13 +2072,13 @@
                           <span class="font-bold text-slate-100 text-sm" x-text="v.cve"></span>
                           <span class="font-bold" :class="severityColor(v.cvss)" x-text="'CVSS '+v.cvss.toFixed(1)"></span>
                           <template x-if="v.cvss_v2">
-                            <span class="tag-badge bg-slate-700 text-slate-400 border border-slate-600" x-text="'v2: '+v.cvss_v2"></span>
+                            <span class="tag-badge bg-slate-700/60 text-slate-400 border border-white/[0.07]" x-text="'v2: '+v.cvss_v2"></span>
                           </template>
                           <template x-if="v.verified">
                             <span class="tag-badge bg-green-950 text-green-400 border border-green-800">✓ Verified</span>
                           </template>
                           <template x-if="v.epss">
-                            <span class="tag-badge bg-slate-700 text-slate-400 border border-slate-600"
+                            <span class="tag-badge bg-slate-700/60 text-slate-400 border border-white/[0.07]"
                               x-text="'EPSS '+(v.epss*100).toFixed(2)+'%'"></span>
                           </template>
                         </div>
@@ -1967,7 +2109,7 @@
           <!-- RAW TAB -->
           <div x-show="modalTab === 'raw'">
             <template x-if="recordDetail.data">
-              <pre class="bg-slate-950 border border-slate-800 rounded-lg p-4 text-[11px] text-slate-400 overflow-x-auto whitespace-pre-wrap leading-relaxed max-h-80 overflow-y-auto font-mono" x-text="recordDetail.data"></pre>
+              <pre class="bg-[#060c18] border border-white/[0.06] rounded-xl p-4 text-[11px] text-slate-400 overflow-x-auto whitespace-pre-wrap leading-relaxed max-h-80 overflow-y-auto font-mono" x-text="recordDetail.data"></pre>
             </template>
             <template x-if="!recordDetail.data">
               <div class="text-center py-10 text-slate-500">No raw banner data available.</div>
@@ -1987,7 +2129,7 @@
           View on Shodan
         </a>
         <button @click="closeModal()"
-          class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs text-slate-300 transition">
+          class="px-4 py-1.5 bg-slate-800/70 hover:bg-slate-700/80 border border-white/[0.09] hover:border-white/[0.15] rounded-lg text-xs text-slate-300 transition">
           Close
         </button>
       </div>
@@ -2001,7 +2143,7 @@
   <div x-show="reportBuilderOpen" x-cloak
     class="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/85 backdrop-blur p-4 overflow-y-auto"
     @keydown.escape.window="reportBuilderOpen = false">
-    <div class="w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl my-8" @click.stop>
+    <div class="w-full max-w-2xl bg-[#0c1829] border border-white/[0.08] rounded-2xl shadow-2xl my-8" @click.stop>
 
       <!-- Header -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
@@ -2019,25 +2161,25 @@
           <div class="col-span-2">
             <label class="block text-[10px] text-slate-500 mb-1">Report title</label>
             <input type="text" x-model="reportMeta.title"
-              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-orange-500"
+              class="w-full bg-[#060c18] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-orange-500"
               placeholder="Security Assessment Report">
           </div>
           <div>
             <label class="block text-[10px] text-slate-500 mb-1">Organisation / client name</label>
             <input type="text" x-model="reportMeta.org"
-              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-orange-500"
+              class="w-full bg-[#060c18] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-orange-500"
               placeholder="e.g. Acme Corp">
           </div>
           <div>
             <label class="block text-[10px] text-slate-500 mb-1">Prepared by</label>
             <input type="text" x-model="reportMeta.analyst"
-              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-orange-500"
+              class="w-full bg-[#060c18] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-orange-500"
               placeholder="Analyst name">
           </div>
           <div>
             <label class="block text-[10px] text-slate-500 mb-1">Classification</label>
             <select x-model="reportMeta.classification"
-              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-orange-500">
+              class="w-full bg-[#060c18] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-orange-500">
               <option>CONFIDENTIAL</option>
               <option>TLP:RED</option>
               <option>TLP:AMBER</option>
@@ -2049,7 +2191,7 @@
           <div>
             <label class="block text-[10px] text-slate-500 mb-1">Additional notes (appears in exec summary)</label>
             <input type="text" x-model="reportMeta.notes"
-              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-orange-500"
+              class="w-full bg-[#060c18] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-orange-500"
               placeholder="e.g. Scope: external perimeter scan">
           </div>
         </div>
@@ -2113,7 +2255,7 @@
           Preview in browser
         </button>
         <button @click="buildReport('download')"
-          class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition">
+          class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-slate-800/70 hover:bg-slate-700/80 border border-white/[0.09] hover:border-white/[0.15] text-slate-200 transition">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
           Download HTML
         </button>
@@ -2141,12 +2283,15 @@ function shodanify() {
     scans: {},
     scanning: {},
     scanningAll: false,
+    scanStopRequested: false,
     scanProgress: { done: 0, total: 0 },
+    scanThreads: 50,
     selectedTargets: {},
     targetSearch: '',
     targetStatusFilter: null,  // null = all, or one of: 'up','warn','down','open','unscanned'
     targetType: 'sites',
-    targetSort: 'status',
+    targetSortCol: 'status',
+    targetSortDir: 'desc',
     infraDefaults: [],
     infraAdded: [],
     infraRemoved: [],
@@ -2663,6 +2808,22 @@ function shodanify() {
         x.ip.includes(q) || (x.display || '').toLowerCase().includes(q) ||
         (x.org || '').toLowerCase().includes(q) ||
         (this.scans[x.key]?.rdns || '').toLowerCase().includes(q));
+      // Column sort
+      const col = this.targetSortCol, dir = this.targetSortDir;
+      if (col) {
+        t = [...t].sort((a, b) => {
+          let av, bv;
+          if (col === 'domain')   { av = (a.display || a.ip).toLowerCase(); bv = (b.display || b.ip).toLowerCase(); }
+          else if (col === 'org') { av = (a.org || '').toLowerCase(); bv = (b.org || '').toLowerCase(); }
+          else if (col === 'status') { const order = {up:0,warn:1,open:2,down:3,unscanned:4}; av = order[this.scanStatus(a.key).tone] ?? 9; bv = order[this.scanStatus(b.key).tone] ?? 9; }
+          else if (col === 'response') { av = this.scans[a.key]?.http_ms ?? 999999; bv = this.scans[b.key]?.http_ms ?? 999999; }
+          else if (col === 'issues') { av = a.vulns_count || 0; bv = b.vulns_count || 0; }
+          else if (col === 'scanned') { av = this.scans[a.key]?.scanned_at || ''; bv = this.scans[b.key]?.scanned_at || ''; }
+          else return 0;
+          if (typeof av === 'number') return dir === 'asc' ? av - bv : bv - av;
+          return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+        });
+      }
       return t;
     },
 
@@ -2693,10 +2854,10 @@ function shodanify() {
 
     _chunk(arr, n) { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; },
 
-    async _postScan(batch) {
+    async _postScan(batch, workers) {
       const res = await fetch('/api/scan', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targets: batch.map(t => ({ ip: t.ip, port: t.port, hostname: t.hostname })) }),
+        body: JSON.stringify({ targets: batch.map(t => ({ ip: t.ip, port: t.port, hostname: t.hostname })), workers: workers || this.scanThreads }),
       });
       const d = await res.json();
       for (const r of (d.results || [])) this.scans[r.ip + ':' + r.port] = r;
@@ -2704,30 +2865,44 @@ function shodanify() {
 
     async scanOne(t) {
       this.scanning[t.key] = true;
-      try { await this._postScan([t]); }
+      try { await this._postScan([t], this.scanThreads); }
       finally { delete this.scanning[t.key]; }
+    },
+
+    sortBy(col) {
+      if (this.targetSortCol === col) this.targetSortDir = this.targetSortDir === 'asc' ? 'desc' : 'asc';
+      else { this.targetSortCol = col; this.targetSortDir = col === 'issues' || col === 'response' ? 'desc' : 'asc'; }
+      this.targetsPage = 0;
     },
 
     async scanAll() {
       if (this.scanningAll) return;
-      // Scan the current selection if any rows are ticked, else everything visible.
       const sel = this.filteredTargets.filter(t => this.selectedTargets[t.key]);
       const targets = sel.length ? sel : this.filteredTargets;
       if (!targets.length) return;
       this.scanningAll = true;
+      this.scanStopRequested = false;
       this.scanProgress = { done: 0, total: targets.length };
       targets.forEach(t => this.scanning[t.key] = true);
-      // Smaller chunks stream results back sooner, so the progress bar and the
-      // table fill in progressively rather than in big jumps.
-      await Promise.all(this._chunk(targets, 8).map(async ch => {
-        try { await this._postScan(ch); }
+      // Sequential chunks so stop works between batches; server semaphore handles concurrency within each batch.
+      const chunkSize = Math.max(1, this.scanThreads);
+      for (const ch of this._chunk(targets, chunkSize)) {
+        if (this.scanStopRequested) {
+          ch.forEach(t => delete this.scanning[t.key]);
+          this.scanProgress.done += ch.length;
+          continue;
+        }
+        try { await this._postScan(ch, this.scanThreads); }
         finally {
           ch.forEach(t => delete this.scanning[t.key]);
           this.scanProgress.done += ch.length;
         }
-      }));
+      }
       this.scanningAll = false;
+      this.scanStopRequested = false;
     },
+
+    stopScan() { this.scanStopRequested = true; },
 
     // ── Exports / reports ─────────────────────────────────────────────────
     _download(content, filename, mime) {
@@ -2832,6 +3007,256 @@ function shodanify() {
         ${body}</body></html>`;
       const w = window.open('', '_blank');
       if (w) { w.document.write(html); w.document.close(); }
+    },
+
+    quickExportReport() {
+      const targets = this.filteredTargets.filter(t => t.vulns_count > 0 || this.scans[t.key]);
+      if (!targets.length) { alert('No scanned targets or targets with CVEs in the current view.'); return; }
+
+      const cveMap = {};
+      for (const v of (this.stats?.vulns || [])) cveMap[v.cve] = v;
+
+      // Build compact host objects
+      const hosts = targets.map(t => {
+        const s = this.scans[t.key] || null;
+        const st = s ? this.scanStatus(t.key) : { label: 'Not scanned', tone: 'unscanned' };
+        const cves = (t.cves || []).map(id => cveMap[id]).filter(Boolean);
+        const avgCvss = cves.length ? +(cves.reduce((a, c) => a + (c.max_cvss || 0), 0) / cves.length).toFixed(2) : null;
+        return {
+          id: 'h-' + t.ip.replace(/\./g, '-') + '-' + t.port,
+          display: t.display || t.ip, ip: t.ip, port: t.port, url: t.url, org: t.org || '',
+          cveCount: cves.length, maxCvss: t.max_cvss || null, avgCvss,
+          httpStatus: s?.http_status ?? null, httpMs: s?.http_ms ?? null,
+          title: s?.title || t.http_title || null, description: s?.description || null,
+          statusLabel: st.label, statusTone: st.tone,
+          scannedAt: s?.scanned_at || null, redirected: s?.redirected || false,
+          finalUrl: s?.final_url || null, rdns: s?.rdns || null,
+          cveIds: (t.cves || []).filter(id => cveMap[id]),
+        };
+      });
+
+      // Build compact CVE objects
+      const cveHostMap = {};
+      hosts.forEach(h => h.cveIds.forEach(id => (cveHostMap[id] = cveHostMap[id] || []).push(h.id)));
+      const cves = [...new Set(hosts.flatMap(h => h.cveIds))]
+        .map(id => cveMap[id]).filter(Boolean)
+        .sort((a, b) => (b.max_cvss || 0) - (a.max_cvss || 0))
+        .map(c => ({
+          id: c.cve, cvss: c.max_cvss || 0, epss: c.epss ?? null,
+          verified: c.verified || false, summary: c.summary || '',
+          references: (c.references || []).slice(0, 6),
+          affectedHosts: cveHostMap[c.cve] || [],
+        }));
+
+      const stats = {
+        total: hosts.length,
+        scanned: hosts.filter(h => h.scannedAt).length,
+        withCves: hosts.filter(h => h.cveCount > 0).length,
+        critical: hosts.filter(h => (h.maxCvss || 0) >= 9).length,
+        uniqueCves: cves.length,
+        generated: new Date().toLocaleString(),
+      };
+
+      // Minified CSS
+      const css = `*{box-sizing:border-box;margin:0;padding:0}body{font:13px/1.6 -apple-system,Segoe UI,sans-serif;color:#1e293b;background:#f8fafc}.page{max-width:1100px;margin:0 auto;padding:24px 20px}.rh{background:linear-gradient(135deg,#1e293b,#0f172a);color:#f8fafc;padding:28px 32px;border-radius:12px;margin-bottom:24px}.rh h1{font-size:22px;font-weight:800;margin-bottom:4px}.rh .sub{color:#94a3b8;font-size:12px}.kpis{display:flex;gap:12px;margin-top:16px;flex-wrap:wrap}.kpi{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:10px 16px;min-width:90px}.kpi b{display:block;font-size:20px;font-weight:800;line-height:1}.kpi span{font-size:11px;color:#94a3b8;margin-top:2px;display:block}.kpi.crit b{color:#fca5a5}.srch{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;margin-bottom:20px;display:flex;align-items:center;gap:10px}.srch input{flex:1;border:1px solid #e2e8f0;border-radius:6px;padding:7px 12px;font:13px inherit;outline:none}.srch input:focus{border-color:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,.1)}.sec-srch{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f9fafb;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:12px}.sec-srch svg{flex-shrink:0;color:#94a3b8}.sec-srch input{flex:1;border:none;background:transparent;font:12px inherit;outline:none;color:#374151}.sec-srch input::placeholder{color:#cbd5e1}.toc{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 16px;margin-bottom:24px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}.toc-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;font-weight:600}.toc a{font-size:12px;font-weight:500;color:#374151;padding:3px 10px;border-radius:6px;border:1px solid #e2e8f0;background:#f9fafb;text-decoration:none}.toc a:hover{background:#f97316;color:#fff;border-color:#f97316}section{margin-bottom:32px}.sec-hdr{display:flex;align-items:center;gap:10px;padding-bottom:8px;border-bottom:2px solid #f97316;margin-bottom:14px;cursor:pointer;user-select:none}.sec-hdr h2{font-size:16px;font-weight:800;color:#0f172a;flex:1}.sec-hdr .cnt{font-size:11px;color:#94a3b8;padding:2px 8px;background:#f1f5f9;border-radius:99px}.sec-hdr .tog{font-size:12px;color:#94a3b8}.sec-body.collapsed{display:none}table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:8px}th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;background:#f8fafc;border-bottom:1px solid #e2e8f0;padding:8px 12px;font-weight:600}td{padding:8px 12px;border-bottom:1px solid #f1f5f9;vertical-align:top;font-size:12px}tr:last-child td{border-bottom:none}tr:hover td{background:#fafbfc}.num{text-align:right;font-variant-numeric:tabular-nums}.mono{font-family:ui-monospace,monospace;font-size:11px}.muted{color:#94a3b8}.center{text-align:center}.hb{background:#fff;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:14px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.04)}.hb-hdr{background:#f8fafc;border-bottom:1px solid #e2e8f0;padding:11px 16px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px}.hb-title{font-size:14px;font-weight:800;color:#0f172a}.hb-ext{font-size:12px;color:#94a3b8;margin-left:6px}.org-tag{display:inline-block;margin-left:8px;font-size:10px;background:#f1f5f9;color:#475569;padding:1px 7px;border-radius:99px;border:1px solid #e2e8f0}.hb-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11px;color:#64748b}.hb-body{padding:0}.hb-desc{font-size:11px;color:#475569;padding:8px 16px;background:#fffbf5;border-bottom:1px solid #fef3c7;font-style:italic}.hb table{border-radius:0;box-shadow:none;margin:0}.back{display:block;text-align:right;font-size:10px;color:#94a3b8;padding:6px 12px;background:#f8fafc;border-top:1px solid #f1f5f9;text-decoration:none}.ae{background:#fff;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:12px;padding:16px 18px}.ae-hdr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}.cve-id{font-size:13px;font-weight:700;color:#1e293b;font-family:ui-monospace,monospace}.sev-b{padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700}.epss-b{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;padding:2px 7px;border-radius:6px;font-size:10px;font-weight:600}.ver-b{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;padding:2px 7px;border-radius:6px;font-size:10px;font-weight:600}.ae-sum{font-size:12px;color:#374151;line-height:1.6;margin-bottom:10px}.ae-ft{font-size:11px;color:#475569;display:flex;flex-direction:column;gap:6px}.refs a{font-size:10px;color:#2563eb;font-family:ui-monospace,monospace;display:block;margin-top:2px}.more-bar{text-align:center;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:0 0 8px 8px;margin-bottom:8px}.more-btn{font:inherit;padding:5px 16px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;cursor:pointer;font-size:11px;color:#374151;margin:0 4px}.more-btn:hover{border-color:#f97316;color:#f97316}.desc-toggle{cursor:pointer;font-size:11px;color:#475569;margin-top:3px;line-height:1.5}.desc-toggle .more-lnk{color:#f97316;font-size:10px;font-weight:600}.host-ip{font-size:10px;color:#94a3b8;font-family:ui-monospace,monospace;margin-top:2px}a{color:#ea580c;text-decoration:none}a:hover{text-decoration:underline}@media print{.noprint{display:none}}`;
+
+      // JS logic embedded in the exported file
+      const js = `
+const CC=v=>v>=9?'#dc2626':v>=7?'#ea580c':v>=4?'#ca8a04':v>0?'#2563eb':'#64748b';
+const SL=v=>v>=9?'CRITICAL':v>=7?'HIGH':v>=4?'MEDIUM':v>0?'LOW':'NONE';
+const HC=s=>s==null?'#64748b':s<300?'#16a34a':s<400?'#2563eb':s<500?'#ca8a04':'#dc2626';
+const E=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const HOSTS=DATA.hosts,CVES=DATA.cves,hostIdx={},cveIdx={};
+HOSTS.forEach(h=>hostIdx[h.id]=h);
+CVES.forEach(c=>cveIdx[c.id]=c);
+
+let gQuery='';
+const S={summary:{q:'',n:25},findings:{q:'',n:5},annex:{q:'',n:25}};
+
+function mH(h,q){return !q||(h.display+h.ip+h.org+(h.title||'')+(h.description||'')).toLowerCase().includes(q);}
+function mC(c,q){return !q||(c.id+c.summary).toLowerCase().includes(q);}
+function Q(sec){return gQuery||S[sec].q;}
+
+function renderSummary(){
+  const q=Q('summary'),all=HOSTS.filter(h=>mH(h,q)),shown=all.slice(0,S.summary.n);
+  const rows=shown.map(h=>{
+    const hc=HC(h.httpStatus),cc=CC(h.maxCvss||0),di='d-'+h.id;
+    const desc=h.description?(\`<div class="desc-toggle" id="\${di}">
+      <span class="ds">\${E(h.description.slice(0,90))}\${h.description.length>90?'<span class="more-lnk" onclick="td(\\'\${di}\\')" style="margin-left:4px">… more</span>':''}</span>
+      \${h.description.length>90?'<span class="df" style="display:none">'+E(h.description)+' <span class="more-lnk" onclick="td(\\'\${di}\\')" style="margin-left:4px">less</span></span>':''}</div>\`):'';
+    return \`<tr>
+      <td><div><a href="#\${h.id}">\${E(h.display)}</a>\${h.org?' <small class="muted">'+E(h.org)+'</small>':''}</div><div class="host-ip">\${E(h.ip)}:\${h.port}</div>\${desc}</td>
+      <td>\${h.httpStatus!=null?'<span style="color:'+hc+';font-weight:600">HTTP '+h.httpStatus+'</span>':'<span class="muted">—</span>'}\${h.httpMs!=null?' <small class="muted">'+h.httpMs+'ms</small>':''}</td>
+      <td class="num">\${h.cveCount||'<span class="muted">—</span>'}</td>
+      <td class="num">\${h.maxCvss!=null?'<span style="color:'+cc+';font-weight:700">'+h.maxCvss.toFixed(1)+'</span>':'<span class="muted">—</span>'}</td>
+      <td class="num">\${h.avgCvss!=null?h.avgCvss.toFixed(1):'<span class="muted">—</span>'}</td>
+      <td class="muted" style="white-space:nowrap">\${h.scannedAt?new Date(h.scannedAt).toLocaleString():'—'}</td>
+    </tr>\`;
+  }).join('');
+  const rem=all.length-shown.length;
+  const bar=rem>0?\`<div class="more-bar"><button class="more-btn" onclick="S.summary.n+=25;renderSummary()">Show \${Math.min(25,rem)} more</button><button class="more-btn" onclick="S.summary.n=99999;renderSummary()">Show all (\${all.length})</button></div>\`:'';
+  document.getElementById('summary-body').innerHTML=rows||'<tr><td colspan="6" class="muted center" style="padding:20px">No results.</td></tr>';
+  document.getElementById('summary-more').innerHTML=bar;
+  document.getElementById('summary-cnt').textContent=all.length+' hosts';
+}
+
+function renderFindings(){
+  const q=Q('findings'),all=HOSTS.filter(h=>mH(h,q)&&(h.cveCount>0||h.scannedAt)),shown=all.slice(0,S.findings.n);
+  const html=shown.map(h=>{
+    const cveRows=h.cveIds.filter(id=>!q||mC(cveIdx[id]||{},q)).map(id=>{
+      const c=cveIdx[id]||{id,cvss:0,summary:'',epss:null,verified:false};
+      return \`<tr>
+        <td class="mono"><a href="#annex-\${c.id}">\${E(c.id)}</a></td>
+        <td><span style="color:\${CC(c.cvss)};font-weight:700;font-size:11px">\${SL(c.cvss)}</span></td>
+        <td class="num" style="color:\${CC(c.cvss)};font-weight:700">\${c.cvss?c.cvss.toFixed(1):'—'}</td>
+        <td class="num">\${c.epss!=null?(c.epss*100).toFixed(2)+'%':'—'}</td>
+        <td>\${c.verified?'<span style="color:#16a34a;font-size:11px;font-weight:600">✓</span>':'<span class="muted">—</span>'}</td>
+        <td style="font-size:11px;color:#475569;max-width:260px">\${E((c.summary||'').slice(0,150))}\${(c.summary||'').length>150?'…':''}</td>
+      </tr>\`;
+    }).join('')||'<tr><td colspan="6" class="muted center">No CVEs.</td></tr>';
+    return \`<div class="hb" id="\${h.id}">
+      <div class="hb-hdr">
+        <div><span class="hb-title">\${E(h.display)}</span><a href="\${E(h.url)}" target="_blank" rel="noopener" class="hb-ext" style="margin-left:6px;font-size:12px;color:#94a3b8">↗</a>\${h.org?'<span class="org-tag">'+E(h.org)+'</span>':''}</div>
+        <div class="hb-meta"><span class="mono">\${E(h.ip)}:\${h.port}</span>\${h.httpStatus!=null?'<span style="color:'+HC(h.httpStatus)+';font-weight:600">HTTP '+h.httpStatus+'</span>':''}\${h.httpMs!=null?'<span class="muted">'+h.httpMs+'ms</span>':''}\${h.title?'<span style="color:#475569">'+E(h.title.slice(0,60))+'</span>':''}</div>
+      </div>
+      \${h.description?'<div class="hb-desc">'+E(h.description)+'</div>':''}
+      <div class="hb-body"><table><thead><tr><th>CVE</th><th>Sev</th><th>CVSS</th><th>EPSS</th><th>✓</th><th>Summary</th></tr></thead><tbody>\${cveRows}</tbody></table></div>
+      <a href="#findings" class="back noprint">↑ back</a>
+    </div>\`;
+  }).join('');
+  const rem=all.length-shown.length;
+  const bar=rem>0?\`<div class="more-bar"><button class="more-btn" onclick="S.findings.n+=25;renderFindings()">Show \${Math.min(25,rem)} more</button><button class="more-btn" onclick="S.findings.n=99999;renderFindings()">Show all (\${all.length})</button></div>\`:'';
+  document.getElementById('findings-body').innerHTML=html||'<p class="muted center" style="padding:20px">No results.</p>';
+  document.getElementById('findings-more').innerHTML=bar;
+  document.getElementById('findings-cnt').textContent=all.length+' hosts';
+}
+
+function renderAnnex(){
+  const q=Q('annex'),all=CVES.filter(c=>mC(c,q)),shown=all.slice(0,S.annex.n);
+  const html=shown.map(c=>{
+    const aff=c.affectedHosts.map(id=>{const h=hostIdx[id];return h?'<a href="#'+h.id+'">'+E(h.display)+'</a>':''}).filter(Boolean).join(', ');
+    const refs=c.references.map(r=>'<a class="refs" href="'+E(r)+'" target="_blank" rel="noopener">'+E(r.replace(/^https?:\\/\\//,'').slice(0,70))+'</a>').join('');
+    return \`<div class="ae" id="annex-\${c.id}">
+      <div class="ae-hdr">
+        <a href="https://nvd.nist.gov/vuln/detail/\${E(c.id)}" target="_blank" rel="noopener" class="cve-id">\${E(c.id)}</a>
+        <span class="sev-b" style="background:\${CC(c.cvss)}22;color:\${CC(c.cvss)};border:1px solid \${CC(c.cvss)}44">\${SL(c.cvss)} \${c.cvss?c.cvss.toFixed(1):'n/a'}</span>
+        \${c.epss!=null?'<span class="epss-b">EPSS '+(c.epss*100).toFixed(2)+'%</span>':''}
+        \${c.verified?'<span class="ver-b">✓ Verified</span>':''}
+      </div>
+      \${c.summary?'<p class="ae-sum">'+E(c.summary)+'</p>':''}
+      <div class="ae-ft">
+        <div><strong>Affected (\${c.affectedHosts.length}):</strong> \${aff||'—'}</div>
+        \${refs?'<div><strong>References:</strong>'+refs+'</div>':''}
+      </div>
+    </div>\`;
+  }).join('');
+  const rem=all.length-shown.length;
+  const bar=rem>0?\`<div class="more-bar"><button class="more-btn" onclick="S.annex.n+=25;renderAnnex()">Show \${Math.min(25,rem)} more</button><button class="more-btn" onclick="S.annex.n=99999;renderAnnex()">Show all (\${all.length})</button></div>\`:'';
+  document.getElementById('annex-body').innerHTML=html||'<p class="muted center" style="padding:20px">No results.</p>';
+  document.getElementById('annex-more').innerHTML=bar;
+  document.getElementById('annex-cnt').textContent=all.length+' CVEs';
+}
+
+function renderAll(){renderSummary();renderFindings();renderAnnex();}
+
+function toggleSection(id){
+  const b=document.getElementById(id+'-content'),t=document.getElementById(id+'-tog');
+  b.classList.toggle('collapsed');
+  t.textContent=b.classList.contains('collapsed')?'▶ expand':'▼ collapse';
+}
+
+function td(id){
+  const el=document.getElementById(id);
+  const ds=el.querySelector('.ds'),df=el.querySelector('.df');
+  if(!df)return;
+  const hidden=df.style.display==='none';
+  ds.style.display=hidden?'none':''; df.style.display=hidden?'':'none';
+}
+
+function doSearch(v){
+  gQuery=v.trim().toLowerCase();
+  S.summary.n=25;S.findings.n=5;S.annex.n=25;
+  renderAll();
+}
+
+function doSec(sec,v){
+  S[sec].q=v.trim().toLowerCase(); S[sec].n=25;
+  if(sec==='summary')renderSummary();
+  else if(sec==='findings')renderFindings();
+  else renderAnnex();
+}
+
+window.onload=function(){renderAll();};
+      `.trim();
+
+      const d = stats;
+      const sIcon = `<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>`;
+      const bodyHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Security Report — ${stats.generated.replace(/</g,'&lt;')}</title><style>${css}</style></head><body>
+<div class="page">
+<div class="rh">
+  <h1>Security Exposure Report</h1>
+  <p class="sub">Generated ${stats.generated} &middot; Shodanify export + live scan data</p>
+  <div class="kpis">
+    <div class="kpi"><b>${d.total}</b><span>Hosts</span></div>
+    <div class="kpi"><b>${d.scanned}</b><span>Scanned</span></div>
+    <div class="kpi"><b>${d.withCves}</b><span>With CVEs</span></div>
+    <div class="kpi"><b>${d.uniqueCves}</b><span>Unique CVEs</span></div>
+    <div class="kpi crit"><b>${d.critical}</b><span>Critical hosts</span></div>
+  </div>
+</div>
+<div class="srch noprint">
+  <svg width="15" height="15" fill="none" stroke="#94a3b8" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+  <input type="text" placeholder="Global search — hosts, CVEs, orgs…" oninput="doSearch(this.value)">
+</div>
+<nav class="toc noprint">
+  <span class="toc-lbl">Jump to</span>
+  <a href="#summary">§1 Summary</a>
+  <a href="#findings">§2 Findings</a>
+  <a href="#annex">§3 CVE Annex</a>
+  <a href="javascript:window.print()" style="margin-left:auto;background:#f97316;color:#fff;border-color:#f97316">Print / PDF</a>
+</nav>
+<section id="summary">
+  <div class="sec-hdr" onclick="toggleSection('summary')">
+    <h2>§1 Host Summary</h2><span class="cnt" id="summary-cnt"></span><span class="tog" id="summary-tog">▼ collapse</span>
+  </div>
+  <div class="sec-body" id="summary-content">
+    <div class="sec-srch noprint">${sIcon}<input type="text" placeholder="Filter this table…" oninput="doSec('summary',this.value)"></div>
+    <table><thead><tr><th>Host · IP · Description</th><th>HTTP</th><th class="num">CVEs</th><th class="num">Max CVSS</th><th class="num">Avg CVSS</th><th>Last Scanned</th></tr></thead><tbody id="summary-body"></tbody></table>
+    <div id="summary-more"></div>
+  </div>
+</section>
+<section id="findings">
+  <div class="sec-hdr" onclick="toggleSection('findings')">
+    <h2>§2 Detailed Findings</h2><span class="cnt" id="findings-cnt"></span><span class="tog" id="findings-tog">▼ collapse</span>
+  </div>
+  <div class="sec-body" id="findings-content">
+    <div class="sec-srch noprint">${sIcon}<input type="text" placeholder="Filter findings…" oninput="doSec('findings',this.value)"></div>
+    <div id="findings-body"></div>
+    <div id="findings-more"></div>
+  </div>
+</section>
+<section id="annex">
+  <div class="sec-hdr" onclick="toggleSection('annex')">
+    <h2>§3 CVE Annex</h2><span class="cnt" id="annex-cnt"></span><span class="tog" id="annex-tog">▼ collapse</span>
+  </div>
+  <div class="sec-body" id="annex-content">
+    <div class="sec-srch noprint">${sIcon}<input type="text" placeholder="Filter CVEs…" oninput="doSec('annex',this.value)"></div>
+    <div id="annex-body"></div>
+    <div id="annex-more"></div>
+  </div>
+</section>
+</div>
+<script>const DATA=${JSON.stringify({hosts,cves}).replace(/<\//g,'<\\/')};\n${js}<\/script>
+</body></html>`;
+
+      const blob = new Blob([bodyHtml], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `security-report-${new Date().toISOString().slice(0,10)}.html`;
+      a.click();
+      URL.revokeObjectURL(url);
     },
 
     _cveUrl(cve) { return `https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cve)}`; },
@@ -3729,7 +4154,7 @@ function shodanify() {
       if (s >= 7) return 'bg-orange-950 text-orange-400 border border-orange-800';
       if (s >= 4) return 'bg-yellow-950 text-yellow-400 border border-yellow-800';
       if (s > 0) return 'bg-blue-950 text-blue-400 border border-blue-800';
-      return 'bg-slate-800 text-slate-500 border border-slate-700';
+      return 'bg-slate-800/60 text-slate-500 border border-white/[0.07]';
     },
 
     severityLabel(score) {

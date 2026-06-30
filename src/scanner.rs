@@ -19,6 +19,14 @@ fn title_re() -> &'static Regex {
     TITLE_RE.get_or_init(|| Regex::new(r"(?is)<title[^>]*>(.*?)</title>").unwrap())
 }
 
+static DESC_RE: OnceLock<Regex> = OnceLock::new();
+fn desc_re() -> &'static Regex {
+    DESC_RE.get_or_init(|| {
+        // Matches both attribute orders: name=... content=... and content=... name=...
+        Regex::new(r#"(?is)<meta[^>]+name=["']?description["']?[^>]+content=["']([^"'>]{0,400})|<meta[^>]+content=["']([^"'>]{0,400})["']?[^>]+name=["']?description["']?"#).unwrap()
+    })
+}
+
 fn now_iso() -> String {
     Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
@@ -104,11 +112,17 @@ async fn try_scheme(client: &reqwest::Client, host: &str, port: u16, scheme: &st
                     t.to_string()
                 });
 
+            let description = desc_re()
+                .captures(&body)
+                .and_then(|c| c.get(1).or_else(|| c.get(2)))
+                .map(|m| m.as_str().trim().to_string());
+
             json!({
                 "http_status": status,
                 "http_ok": http_ok,
                 "server": server,
                 "title": title,
+                "description": description,
                 "final_url": final_url,
                 "redirected": redirected,
                 "http_ms": ms,

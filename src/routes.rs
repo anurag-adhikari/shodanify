@@ -152,7 +152,12 @@ async fn api_scan(
 
     let connect_timeout = Duration::from_secs_f64(state.config.scan_connect_timeout_secs);
     let read_timeout = Duration::from_secs_f64(state.config.scan_read_timeout_secs);
-    let workers = state.config.scan_workers;
+    // Allow the caller to override the worker count (UI thread-count control).
+    // Clamp to a safe range so a rogue request can't pin the server.
+    let workers = payload.get("workers")
+        .and_then(|v| v.as_u64())
+        .map(|w| (w as usize).clamp(1, 500))
+        .unwrap_or(state.config.scan_workers);
 
     let n = targets.len();
     let act_id = state.activity.start("Scan", format!("scanning {} target{}", n, if n == 1 { "" } else { "s" }));
