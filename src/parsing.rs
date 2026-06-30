@@ -434,6 +434,155 @@ pub fn parse_record(r: &Value) -> Value {
     })
 }
 
+#[cfg(test)]
+mod parse_tests {
+    use super::*;
+
+    #[test]
+    fn cvss_severity_boundaries() {
+        // Boundaries are inclusive at the lower edge of each band.
+        assert_eq!(cvss_severity(10.0), "critical");
+        assert_eq!(cvss_severity(9.0), "critical");
+        assert_eq!(cvss_severity(8.9), "high");
+        assert_eq!(cvss_severity(7.0), "high");
+        assert_eq!(cvss_severity(6.9), "medium");
+        assert_eq!(cvss_severity(4.0), "medium");
+        assert_eq!(cvss_severity(3.9), "low");
+        assert_eq!(cvss_severity(0.1), "low");
+        assert_eq!(cvss_severity(0.0), "none");
+    }
+
+    #[test]
+    fn cert_date_converts_shodan_format() {
+        assert_eq!(cert_date("20261231000000Z"), "2026-12-31T00:00:00Z");
+        assert_eq!(cert_date("20240115093000"), "2024-01-15T09:30:00Z");
+        // Too short to parse → returned unchanged.
+        assert_eq!(cert_date("2026"), "2026");
+    }
+
+    #[test]
+    fn infra_domains_are_detected() {
+        // Apex and subdomains of a known infra domain classify as infra.
+        assert!(is_infra_domain("amazonaws.com"));
+        assert!(is_infra_domain("ec2-1-2-3-4.compute-1.amazonaws.com"));
+        assert!(is_infra_domain("AMAZONAWS.COM")); // case-insensitive
+        assert!(!is_infra_domain("acme.com"));
+    }
+
+    #[test]
+    fn subdomain_infra_rules() {
+        // Rule (a): more than one subdomain level above the registered domain.
+        assert!(is_subdomain_infra("a.b.example.com"));
+        assert!(is_subdomain_infra("api.wiseops.wiseway.co.nz"));
+        // Rule (b): single technical/service subdomain.
+        assert!(is_subdomain_infra("api.example.com"));
+        assert!(is_subdomain_infra("cpanel.userdomain.com"));
+        assert!(is_subdomain_infra("archive-dev.ada.edu.au")); // dash segment matches
+        // Kept (real sites): single non-technical subdomain or apex.
+        assert!(!is_subdomain_infra("www.draytek.com"));
+        assert!(!is_subdomain_infra("inside.freightmatch.com.au"));
+        assert!(!is_subdomain_infra("example.com"));
+    }
+
+    #[test]
+    fn numeric_hostname_prefixes() {
+        assert!(has_numeric_hostname_prefix("115.9.160.203.isphone.com.au"));
+        assert!(has_numeric_hostname_prefix("203-196-40-164.static.dsl.net.au"));
+        assert!(has_numeric_hostname_prefix("cpe-120-148-33-130.vb07.vic.example.net"));
+        assert!(!has_numeric_hostname_prefix("www.example.com"));
+        assert!(!has_numeric_hostname_prefix("mail.acme.org"));
+    }
+
+    #[test]
+    fn classify_site_picks_apex_real_domain() {
+        let domains = vec!["www.example.com".to_string(), "example.com".to_string()];
+        let (is_site, primary) = classify_site(&domains, None, Some("www.example.com"));
+        assert!(is_site);
+        assert_eq!(primary.as_deref(), Some("example.com"));
+    }
+
+    #[test]
+    fn classify_site_rejects_infra_and_numeric() {
+        // Pure infra domain.
+        let (is_site, primary) = classify_site(&["amazonaws.com".to_string()], None, None);
+        assert!(!is_site);
+        assert!(primary.is_none());
+
+        // Numeric hostname prefix forces infra regardless of extracted domains.
+        let (is_site, _) = classify_site(
+            &["example.com".to_string()],
+            None,
+            Some("203-196-40-164.static.dsl.net.au"),
+        );
+        assert!(!is_site);
+    }
+
+    #[test]
+    fn parse_vulns_sorts_by_cvss_and_falls_back_to_v2() {
+        let raw = json!({
+            "CVE-2020-0001": { "cvss": 4.5, "verified": false },
+            "CVE-2021-44228": { "cvss": 10.0, "verified": true, "summary": "Log4Shell" },
+            "CVE-2019-0002": { "cvss_v2": 7.5 } // no cvss → falls back to cvss_v2
+        });
+        let out = parse_vulns(&raw);
+        assert_eq!(out.len(), 3);
+        // Sorted by CVSS descending.
+        assert_eq!(out[0]["cve"], "CVE-2021-44228");
+        assert_eq!(out[0]["severity"], "critical");
+        assert_eq!(out[0]["verified"], true);
+        // v2 fallback applied.
+        let v2 = out.iter().find(|v| v["cve"] == "CVE-2019-0002").unwrap();
+        assert_eq!(v2["cvss"].as_f64(), Some(7.5));
+        assert_eq!(v2["severity"], "high");
+    }
+
+    #[test]
+    fn parse_vulns_handles_non_object() {
+        assert!(parse_vulns(&json!([])).is_empty());
+        assert!(parse_vulns(&Value::Null).is_empty());
+    }
+
+    #[test]
+    fn parse_record_normalises_core_fields() {
+        let raw = json!({
+            "ip_str": "1.2.3.4",
+            "port": 443,
+            "org": "Acme Corp",
+            "hostnames": ["www.acme.com"],
+            "domains": ["acme.com"],
+            "location": { "country_code": "AU", "country_name": "Australia", "city": "Sydney" },
+            "vulns": { "CVE-2021-44228": { "cvss": 10.0, "verified": true } }
+        });
+        let rec = parse_record(&raw);
+        assert_eq!(rec["ip_str"], "1.2.3.4");
+        assert_eq!(rec["port"], 443);
+        assert_eq!(rec["transport"], "tcp"); // defaulted
+        assert_eq!(rec["is_site"], true);
+        assert_eq!(rec["primary_domain"], "acme.com");
+        assert_eq!(rec["location"]["country_code"], "AU");
+        assert_eq!(rec["vulns"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn record_summary_rolls_up_vulns() {
+        let raw = json!({
+            "ip_str": "1.2.3.4",
+            "port": 443,
+            "hostnames": ["www.acme.com"],
+            "vulns": [
+                { "cve": "CVE-A", "cvss": 5.0, "verified": false },
+                { "cve": "CVE-B", "cvss": 9.8, "verified": true }
+            ]
+        });
+        let sum = record_summary(&raw);
+        assert_eq!(sum["vulns_count"], 2);
+        assert_eq!(sum["max_cvss"].as_f64(), Some(9.8));
+        assert_eq!(sum["verified_cves"], 1);
+        assert_eq!(sum["hostname"], "www.acme.com");
+        assert_eq!(sum["cves"].as_array().unwrap().len(), 2);
+    }
+}
+
 /// Lightweight summary projection for the GET /api/records list endpoint.
 pub fn record_summary(r: &Value) -> Value {
     let http = r.get("http");
