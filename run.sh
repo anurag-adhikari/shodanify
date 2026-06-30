@@ -1,14 +1,18 @@
 #!/bin/bash
-# Run Shodanify (Rust backend)
-# Usage: ./run.sh [--release]
+# Build (release) and run Shodanify.
+#   ./run.sh            build if needed, then run
+#   ./run.sh --rebuild  force a fresh release build first
+#   PORT=9000 ./run.sh  override config via env vars (see README)
 set -e
 
 cd "$(dirname "$0")"
 
-if [[ ! -f "target/release/shodanify" ]]; then
-    echo "Building release binary..."
+BIN="target/release/shodanify"
+
+if [[ "$1" == "--rebuild" || ! -x "$BIN" ]]; then
+    echo "==> Building release binary..."
     cargo build --release
 fi
 
-echo "Starting Rust backend..."
-exec ./target/release/shodanify
+echo "==> Starting Shodanify  (http://${HOST:-127.0.0.1}:${PORT:-8080})"
+exec "$BIN"
